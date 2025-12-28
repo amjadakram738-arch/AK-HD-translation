@@ -1,0 +1,54 @@
+# monitoring-config.yml
+
+## 🎯 الغرض والهدف
+ملف تكوين لنظام المراقبة (Prometheus/Grafana) يحدد الخدمات التي يجب مراقبتها وقواعد التنبيه الأساسية.
+
+```yaml
+# تكوين Prometheus
+global:
+  scrape_interval: 15s # سحب المقاييس كل 15 ثانية
+
+scrape_configs:
+  # مراقبة Prometheus نفسه
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # مراقبة الخادم الخلفي
+  - job_name: 'backend'
+    metrics_path: /metrics # نقطة النهاية التي تعرض المقاييس
+    static_configs:
+      - targets: ['backend:3000'] # اسم الخدمة والمنفذ في Docker Compose
+
+  # مراقبة قاعدة البيانات (مثال)
+  - job_name: 'database'
+    static_configs:
+      - targets: ['db:9104'] # منفذ exporter لقاعدة البيانات (يجب إضافته إلى docker-compose)
+
+# قواعد التنبيه (Alerting Rules)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093'] # يجب إضافة خدمة Alertmanager إلى docker-compose
+
+rule_files:
+  - '/etc/prometheus/rules/application_alerts.yml'
+
+# مثال على ملف قواعد التنبيه (application_alerts.yml)
+# groups:
+#   - name: ApplicationAlerts
+#     rules:
+#       - alert: HighErrorRate
+#         expr: rate(http_requests_total{job="backend", code=~"5.."}[5m]) / rate(http_requests_total{job="backend"}[5m]) > 0.05
+#         for: 5m
+#         labels:
+#           severity: critical
+#         annotations:
+#           summary: "معدل الأخطاء في الخلفية يتجاوز 5%"
+```
+---
+**ملاحظات الجودة:**
+- [ ] تم التحقق من الهيكل
+- [ ] تم التحقق من الروابط
+- [ ] تم مراجعة المحتوى
+- [ ] تم تحقيق الترابط

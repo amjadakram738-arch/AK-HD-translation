@@ -1,0 +1,105 @@
+/* تصميم الأيقونة العائمة */
+.v-translate-icon {
+    position: absolute;
+    z-index: 999999;
+    width: 40px;
+    height: 40px;
+    background-color: rgba(0, 123, 255, 0.8);
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    transition: transform 0.2s, background-color 0.2s;
+    pointer-events: auto;
+}
+
+.v-translate-icon:hover {
+    transform: scale(1.1);
+    background-color: rgba(0, 123, 255, 1);
+}
+
+.v-translate-icon.active {
+    background-color: #dc3545;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+}
+
+/* تصميم واجهة الترجمة (Overlay) */
+.v-translate-overlay {
+    position: absolute;
+    bottom: 10%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80%;
+    text-align: center;
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 5px;
+    font-size: 1.2rem;
+    font-family: sans-serif;
+    z-index: 999998;
+    pointer-events: none;
+    line-height: 1.5;
+}
+
+/* تصميم واجهة Popup */
+.popup-container {
+    width: 250px;
+    padding: 15px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.popup-container h1 {
+    font-size: 1.1rem;
+    margin-bottom: 15px;
+    color: #333;
+    text-align: center;
+}
+
+.field {
+    margin-bottom: 12px;
+}
+
+.field label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 0.9rem;
+}
+
+.field select {
+    width: 100%;
+    padding: 5px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+}
+
+.status-panel {
+    margin-top: 15px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    text-align: center;
+}
+
+#status.status-on { color: green; font-weight: bold; }
+#status.status-off { color: red; }
+
+button {
+    width: 100%;
+    padding: 8px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover { background-color: #0056b3; }

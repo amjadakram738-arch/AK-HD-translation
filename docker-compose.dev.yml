@@ -1,0 +1,115 @@
+# docker-compose.dev.yml
+
+## 🎯 الغرض والهدف
+ملف تكوين Docker Compose لبيئة التطوير، يحدد جميع الخدمات المطلوبة لتشغيل المشروع محليًا.
+
+## 📋 الخدمات المضمنة
+1.  **db:** قاعدة بيانات TiDB/MySQL.
+2.  **backend:** الخادم الخلفي (Node.js/Python).
+3.  **frontend:** واجهة المستخدم (React/Vite).
+4.  **prometheus:** لجمع المقاييس.
+5.  **grafana:** لعرض لوحات المراقبة.
+
+```yaml
+version: '3.8'
+
+services:
+  # 1. قاعدة البيانات
+  db:
+    image: mysql:8.0
+    container_name: stt_translator_db_dev
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data_dev:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. الخادم الخلفي
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: stt_translator_backend_dev
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DB_HOST: db
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules # منع الكتابة فوق node_modules
+    command: npm run dev
+
+  # 3. واجهة المستخدم
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: stt_translator_frontend_dev
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://localhost:3000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev
+
+  # 4. المراقبة - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus_dev
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data_dev:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+
+  # 5. المراقبة - Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana_dev
+    depends_on:
+      - prometheus
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data_dev:/var/lib/grafana
+      - ./monitoring/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./monitoring/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+
+volumes:
+  db_data_dev:
+  prometheus_data_dev:
+  grafana_data_dev:
+```
+---
+**ملاحظات الجودة:**
+- [ ] تم التحقق من الهيكل
+- [ ] تم التحقق من الروابط
+- [ ] تم مراجعة المحتوى
+- [ ] تم تحقيق الترابط
