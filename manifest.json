@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Video Translate AI",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "ترجمة فورية للفيديوهات داخل المتصفح باستخدام الذكاء الاصطناعي.",
   "permissions": [
     "tabs",
@@ -9,7 +9,7 @@
     "storage",
     "tabCapture",
     "scripting",
-    "background"
+    "offscreen"
   ],
   "host_permissions": [
     "https://api.yourproxy.com/*"
@@ -21,7 +21,9 @@
     {
       "matches": ["<all_urls>"],
       "js": ["contentScript.js"],
-      "css": ["styles.css"]
+      "css": ["styles.css"],
+      "all_frames": true,
+      "match_about_blank": true
     }
   ],
   "action": {
@@ -42,5 +44,8 @@
       "resources": ["styles.css", "icons/*", "audio-processor.js"],
       "matches": ["<all_urls>"]
     }
-  ]
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' wss://api.yourproxy.com https://api.yourproxy.com; worker-src 'self'"
+  }
 }

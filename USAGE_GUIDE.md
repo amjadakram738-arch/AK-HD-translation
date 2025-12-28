@@ -34,18 +34,24 @@
 
 ### إعدادات الإضافة
 
-1. **لغة الترجمة:**
-   - العربية (ar)
-   - الإنجليزية (en)
-   - الفرنسية (fr)
-   - الإسبانية (es)
+1. **لغة الفيديو (المصدر):**
+   - تلقائي (auto) لاكتشاف اللغة
+   - أو اختيار لغة محددة (مثال: en, ar, fr, ...)
 
-2. **محرك الترجمة:**
+2. **لغة الترجمة (الهدف):**
+   - قائمة واسعة من اللغات (ar, en, fr, es, de, ...)
+
+3. **محرك الترجمة:**
    - Google Translate
    - DeepL
    - OpenAI Whisper
 
-3. **تكوين الخادم الوسيط:**
+4. **عرض الترجمة:**
+   - translated (المترجم فقط)
+   - both (المترجم + الأصلي)
+   - original (الأصلي فقط)
+
+5. **تكوين الخادم الوسيط:**
    - عنوان URL: `wss://api.yourproxy.com/v1/stt-streaming`
    - بروتوكول: WebSocket
    - تنسيق الرسائل: JSON
@@ -57,7 +63,15 @@
 {
   "action": "CONFIGURE",
   "targetLang": "ar",
-  "engine": "google"
+  "sourceLang": "auto",
+  "engine": "google",
+  "subtitleMode": "translated",
+  "pageLang": "en",
+  "hints": {
+    "elementLang": "en",
+    "audioTrackLang": "en",
+    "captionTrackLangs": ["en"]
+  }
 }
 ```
 

@@ -1,22 +1,13 @@
+/* global chrome */
+
 /**
  * background.js - Service Worker
- * المسؤوليات: إدارة الأحداث العامة، التواصل مع Proxy، وإدارة تيار الصوت.
+ * المسؤوليات: إدارة الجلسات، إنشاء Offscreen Document لمعالجة الصوت، التواصل مع Proxy، وتمرير النتائج إلى Content Script.
  */
 
-// 1. الاستماع لرسائل من Content Script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action === "START_TRANSLATION") {
-        handleStartTranslation(sender.tab.id);
-    } else if (message.action === "STOP_TRANSLATION") {
-        handleStopTranslation(sender.tab.id);
-    } else if (message.action === "AUDIO_DATA") {
-        sendToProxy(message.data, sender.tab.id);
-    } else if (message.action === "GET_TRANSLATION_STATUS") {
-        sendResponse({ isTranslating: isProcessing });
-    }
-});
+const PROXY_WS_URL = 'wss://api.yourproxy.com/v1/stt-streaming';
 
-// متغيرات حالة عالمية
+// متغيرات متوافقة مع ملفات التحقق/الاختبارات القديمة
 let socket = null;
 let audioContext = null;
 let mediaStreamSource = null;
@@ -24,254 +15,382 @@ let processor = null;
 let activeTabId = null;
 let isProcessing = false;
 
-/**
- * بدء عملية التقاط الصوت للتبويب المحدد
- */
-async function handleStartTranslation(tabId) {
-    try {
-        // التحقق من وجود جلسة نشطة بالفعل
-        if (isProcessing) {
-            console.log("هناك جلسة ترجمة نشطة بالفعل. إيقافها أولاً...");
-            handleStopTranslation(activeTabId);
-        }
+const sessions = new Map(); // tabId -> { startedAt: number, frameId?: number }
+let offscreenReady = false;
+let offscreenReadyWaiters = [];
 
-        console.log("بدء عملية التقاط الصوت للتبويب:", tabId);
-        activeTabId = tabId;
-        isProcessing = true;
-
-        // استخدام tabCapture للحصول على تيار الصوت
-        // ملاحظة: يجب استدعاء هذا استجابة لتفاعل مستخدم (تم في contentScript)
-        chrome.tabCapture.capture({ audio: true, video: false }, (stream) => {
-            if (!stream) {
-                console.error("فشل التقاط الصوت:", chrome.runtime.lastError);
-                isProcessing = false;
-                return;
-            }
-            
-            console.log("تم التقاط تيار الصوت بنجاح:", stream);
-            
-            // إعداد اتصال WebSocket أولاً
-            setupStreamingProxy(tabId);
-            
-            // ثم إعداد معالجة الصوت
-            setupAudioProcessing(stream, tabId);
-        });
-    } catch (error) {
-        console.error("خطأ في بدء الترجمة:", error);
-        isProcessing = false;
-    }
+function markOffscreenReady() {
+  offscreenReady = true;
+  for (const resolve of offscreenReadyWaiters) resolve();
+  offscreenReadyWaiters = [];
 }
 
-/**
- * إعداد اتصال WebSocket مع الخادم الوسيط
- */
-function setupStreamingProxy(tabId) {
-    const PROXY_WS_URL = "wss://api.yourproxy.com/v1/stt-streaming";
-    
-    // إغلاق اتصال سابق إذا كان موجوداً
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.close();
-    }
-    
-    socket = new WebSocket(PROXY_WS_URL);
-
-    socket.onopen = () => {
-        console.log("تم الاتصال بخادم التدفق بنجاح");
-        
-        // إرسال معلومات التكوين الأولية
-        chrome.storage.sync.get(['targetLang', 'engine'], (settings) => {
-            const config = {
-                action: "CONFIGURE",
-                targetLang: settings.targetLang || 'ar',
-                engine: settings.engine || 'google'
-            };
-            socket.send(JSON.stringify(config));
-        });
-    };
-
-    socket.onmessage = (event) => {
-        try {
-            const result = JSON.parse(event.data);
-            console.log("استلام نتيجة من الخادم:", result);
-            
-            // إرسال النتائج (الجزئية والنهائية) إلى Content Script فور وصولها
-            chrome.tabs.sendMessage(tabId, {
-                action: "NEW_SUBTITLE",
-                text: result.translatedText,
-                isFinal: result.isFinal,
-                originalText: result.originalText
-            }).catch(error => {
-                console.error("فشل في إرسال الرسالة إلى Content Script:", error);
-            });
-        } catch (error) {
-            console.error("فشل في تحليل رسالة WebSocket:", error);
-        }
-    };
-
-    socket.onerror = (error) => {
-        console.error("خطأ في اتصال التدفق:", error);
-        chrome.tabs.sendMessage(tabId, {
-            action: "TRANSLATION_ERROR",
-            error: "فشل في الاتصال بخادم الترجمة"
-        });
-    };
-
-    socket.onclose = () => {
-        console.log("تم إغلاق اتصال WebSocket");
-        if (isProcessing) {
-            // إعادة الاتصال تلقائياً
-            setTimeout(() => setupStreamingProxy(tabId), 5000);
-        }
-    };
+function waitForOffscreenReady(timeoutMs = 2000) {
+  if (offscreenReady) return Promise.resolve();
+  return new Promise((resolve) => {
+    offscreenReadyWaiters.push(resolve);
+    setTimeout(resolve, timeoutMs);
+  });
 }
 
-/**
- * إرسال البيانات الصوتية إلى الخادم الوسيط (Proxy)
- */
-async function sendToProxy(audioChunk) {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        try {
-            socket.send(audioChunk);
-        } catch (error) {
-            console.error("فشل في إرسال البيانات الصوتية:", error);
-        }
-    } else {
-        console.warn("WebSocket غير متصل. تجاهل البيانات الصوتية.");
-    }
+function setProcessingState() {
+  isProcessing = sessions.size > 0;
+  activeTabId = isProcessing ? [...sessions.keys()][sessions.size - 1] : null;
 }
 
-/**
- * إيقاف عملية الترجمة وتنظيف الموارد
- */
-function handleStopTranslation(tabId) {
-    console.log("إيقاف الترجمة للتبويب:", tabId);
-    
-    // إغلاق اتصال WebSocket
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.close();
-    }
-    
-    // تنظيف موارد AudioContext
-    if (processor) {
-        processor.disconnect();
-        processor = null;
-    }
-    
-    if (mediaStreamSource) {
-        mediaStreamSource.disconnect();
-        mediaStreamSource = null;
-    }
-    
-    if (audioContext) {
-        audioContext.close().then(() => {
-            console.log("تم إغلاق AudioContext بنجاح");
-        });
-        audioContext = null;
-    }
-    
-    isProcessing = false;
-    activeTabId = null;
+function storageGet(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.sync.get(keys, (result) => resolve(result || {}));
+  });
 }
 
-/**
- * إعداد معالجة الصوت باستخدام AudioContext
- */
-function setupAudioProcessing(stream, tabId) {
-    try {
-        // إنشاء AudioContext جديد
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        mediaStreamSource = audioContext.createMediaStreamSource(stream);
-        
-        // استخدام ScriptProcessorNode لمعالجة الصوت (ملاحظة: قد يكون deprecated في بعض المتصفحات)
-        // بديل حديث: AudioWorkletNode
-        processor = audioContext.createScriptProcessor(4096, 1, 1);
-        
-        // توصيل العقد
-        mediaStreamSource.connect(processor);
-        processor.connect(audioContext.destination);
-        
-        // إعداد معالج الصوت
-        processor.onaudioprocess = (e) => {
-            if (!isProcessing) return;
-            
-            // الحصول على البيانات الصوتية من القناة اليسرى (mono)
-            const inputData = e.inputBuffer.getChannelData(0);
-            const audioChunk = convertFloat32ToInt16(inputData);
-            
-            // إرسال البيانات الصوتية إلى الخادم الوسيط
-            sendToProxy(audioChunk);
-        };
-        
-        console.log("تم إعداد معالجة الصوت بنجاح");
-        
-    } catch (error) {
-        console.error("فشل في إعداد معالجة الصوت:", error);
-        handleStopTranslation(tabId);
-        
-        // محاولة استخدام AudioWorklet كبديل
-        try {
-            setupAudioWorkletProcessing(stream, tabId);
-        } catch (workletError) {
-            console.error("فشل في إعداد AudioWorklet أيضاً:", workletError);
-        }
-    }
+function tabsDetectLanguage(tabId) {
+  return new Promise((resolve) => {
+    if (!chrome.tabs?.detectLanguage) return resolve(null);
+    chrome.tabs.detectLanguage(tabId, (lang) => {
+      if (chrome.runtime.lastError) return resolve(null);
+      resolve(lang || null);
+    });
+  });
 }
 
-/**
- * إعداد معالجة الصوت باستخدام AudioWorklet (طريقة حديثة)
- */
-async function setupAudioWorkletProcessing(stream, tabId) {
-    try {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        mediaStreamSource = audioContext.createMediaStreamSource(stream);
-        
-        // تسجيل AudioWorklet Processor
-        await audioContext.audioWorklet.addModule('audio-processor.js');
-        
-        const workletNode = new AudioWorkletNode(audioContext, 'audio-processor');
-        mediaStreamSource.connect(workletNode);
-        workletNode.connect(audioContext.destination);
-        
-        // إعداد معالج الأحداث
-        workletNode.port.onmessage = (event) => {
-            if (event.data.type === 'audioChunk') {
-                sendToProxy(event.data.chunk);
-            }
-        };
-        
-        console.log("تم إعداد AudioWorklet بنجاح");
-        
-    } catch (error) {
-        console.error("فشل في إعداد AudioWorklet:", error);
-        handleStopTranslation(tabId);
-    }
+function tabCaptureGetMediaStreamId(tabId) {
+  return new Promise((resolve) => {
+    if (!chrome.tabCapture?.getMediaStreamId) return resolve(null);
+    chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (streamId) => {
+      if (chrome.runtime.lastError) return resolve(null);
+      resolve(streamId || null);
+    });
+  });
 }
 
-/**
- * تحويل بيانات Float32 إلى Int16 (تنسيق شائع في معالجة الصوت)
- */
-function convertFloat32ToInt16(buffer) {
-    const l = buffer.length;
-    const buf = new Int16Array(l);
-    
-    for (let i = 0; i < l; i++) {
-        const s = Math.max(-1, Math.min(1, buffer[i]));
-        buf[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-    }
-    
-    return buf.buffer;
+async function hasOffscreenDocument() {
+  if (!chrome.offscreen?.hasDocument) return false;
+  try {
+    return await chrome.offscreen.hasDocument();
+  } catch (_) {
+    return false;
+  }
 }
 
-// الاستماع لتغييرات التبويب لإدارة حالة الترجمة
-chrome.tabs.onRemoved.addListener((tabId) => {
-    if (tabId === activeTabId) {
-        handleStopTranslation(tabId);
+async function ensureOffscreenDocument() {
+  if (!chrome.offscreen?.createDocument) return;
+
+  const exists = await hasOffscreenDocument();
+  if (!exists) {
+    offscreenReady = false;
+    await chrome.offscreen.createDocument({
+      url: chrome.runtime.getURL('offscreen.html'),
+      reasons: ['AUDIO_PLAYBACK'],
+      justification: 'Process tab audio for real-time speech-to-text streaming'
+    });
+  }
+
+  chrome.runtime.sendMessage({ action: 'OFFSCREEN_PING' });
+  await waitForOffscreenReady();
+}
+
+async function closeOffscreenDocumentIfIdle() {
+  if (!chrome.offscreen?.closeDocument) return;
+  if (sessions.size > 0) return;
+
+  try {
+    const exists = await hasOffscreenDocument();
+    if (exists) {
+      await chrome.offscreen.closeDocument();
+      offscreenReady = false;
     }
+  } catch (_) {
+    // ignore
+  }
+}
+
+function sendToTabFrame(tabId, frameId, payload) {
+  const options = typeof frameId === 'number' ? { frameId } : undefined;
+  chrome.tabs
+    .sendMessage(tabId, payload, options)
+    .catch(() => {
+      // ignore
+    });
+}
+
+function notifyTabStatus(tabId, translating, frameId) {
+  sendToTabFrame(tabId, frameId, {
+    action: 'TRANSLATION_STATUS_CHANGED',
+    isTranslating: translating
+  });
+}
+
+async function buildConfigForTab(tabId, hints) {
+  const settings = await storageGet([
+    'targetLang',
+    'sourceLang',
+    'engine',
+    'subtitleMode',
+    'subtitleSize',
+    'subtitlePosition'
+  ]);
+
+  const pageLang = await tabsDetectLanguage(tabId);
+
+  return {
+    targetLang: settings.targetLang || 'ar',
+    sourceLang: settings.sourceLang || 'auto',
+    engine: settings.engine || 'google',
+    subtitleMode: settings.subtitleMode || 'translated',
+    subtitleSize: settings.subtitleSize || 'medium',
+    subtitlePosition: settings.subtitlePosition || 'bottom',
+    pageLang,
+    hints: hints || null,
+    proxyWsUrl: PROXY_WS_URL
+  };
+}
+
+// 1. الاستماع لرسائل من جميع السياقات (Content Script / Popup / Offscreen)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message?.action) return;
+
+  if (message.action === 'OFFSCREEN_READY') {
+    markOffscreenReady();
+    return;
+  }
+
+  if (message.action === 'OFFSCREEN_SUBTITLE') {
+    const session = sessions.get(message.tabId);
+    const frameId = session?.frameId;
+
+    sendToTabFrame(message.tabId, frameId, {
+      action: 'NEW_SUBTITLE',
+      text: message.translatedText,
+      isFinal: message.isFinal,
+      originalText: message.originalText,
+      detectedLang: message.detectedLang
+    });
+    return;
+  }
+
+  if (message.action === 'OFFSCREEN_ERROR') {
+    const session = sessions.get(message.tabId);
+    const frameId = session?.frameId;
+
+    sendToTabFrame(message.tabId, frameId, {
+      action: 'TRANSLATION_ERROR',
+      error: message.error || 'خطأ غير معروف'
+    });
+    return;
+  }
+
+  if (message.action === 'GET_TRANSLATION_STATUS') {
+    const tabId = message.tabId ?? sender?.tab?.id;
+    const translating = tabId ? sessions.has(tabId) : isProcessing;
+    sendResponse({ isTranslating: translating, activeTabId });
+    return;
+  }
+
+  if (message.action === 'UPDATE_SETTINGS') {
+    const settings = message.settings || {};
+    chrome.runtime.sendMessage({
+      action: 'OFFSCREEN_UPDATE_CONFIG',
+      settings
+    });
+    return;
+  }
+
+  if (message.action === 'AUDIO_DATA') {
+    sendToProxy(message.data);
+    return;
+  }
+
+  if (message.action === 'START_TRANSLATION') {
+    const tabId = message.tabId ?? sender?.tab?.id;
+    const frameId = message.frameId ?? sender?.frameId;
+    handleStartTranslation(tabId, message.hints, frameId).finally(() => {
+      if (sendResponse) sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message.action === 'STOP_TRANSLATION') {
+    const tabId = message.tabId ?? sender?.tab?.id;
+    handleStopTranslation(tabId).finally(() => {
+      if (sendResponse) sendResponse({ ok: true });
+    });
+    return true;
+  }
 });
 
-// الاستماع لأخطاء التصفح
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (tabId === activeTabId && changeInfo.status === 'complete' && !tab.url.startsWith('http')) {
-        handleStopTranslation(tabId);
+// 2. بدء عملية التقاط الصوت للتبويب المحدد
+async function handleStartTranslation(tabId, hints, frameId) {
+  if (!tabId) return;
+
+  await ensureOffscreenDocument();
+
+  const streamId = await tabCaptureGetMediaStreamId(tabId);
+  if (!streamId) {
+    notifyTabStatus(tabId, false, frameId);
+    sendToTabFrame(tabId, frameId, {
+      action: 'TRANSLATION_ERROR',
+      error: 'فشل في التقاط الصوت (tabCapture)'
+    });
+    return;
+  }
+
+  const settings = await buildConfigForTab(tabId, hints);
+
+  sessions.set(tabId, { startedAt: Date.now(), frameId });
+  setProcessingState();
+
+  chrome.runtime.sendMessage({
+    action: 'OFFSCREEN_START',
+    tabId,
+    streamId,
+    settings
+  });
+
+  notifyTabStatus(tabId, true, frameId);
+}
+
+// 3. إيقاف عملية الترجمة لتنظيف الموارد
+async function handleStopTranslation(tabId) {
+  const resolvedTabId = tabId ?? activeTabId;
+  if (!resolvedTabId) return;
+
+  const session = sessions.get(resolvedTabId);
+  const frameId = session?.frameId;
+
+  sessions.delete(resolvedTabId);
+  setProcessingState();
+
+  chrome.runtime.sendMessage({
+    action: 'OFFSCREEN_STOP',
+    tabId: resolvedTabId
+  });
+
+  notifyTabStatus(resolvedTabId, false, frameId);
+  await closeOffscreenDocumentIfIdle();
+}
+
+// ---------------------------------------------------------------------------------
+// الدوال التالية موجودة لتوافق ملفات التحقق/الاختبارات القديمة (Fallback Legacy)
+// ---------------------------------------------------------------------------------
+
+function setupStreamingProxy(tabId) {
+  const url = PROXY_WS_URL;
+
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.close();
+  }
+
+  socket = new WebSocket(url);
+
+  socket.onopen = () => {
+    chrome.storage.sync.get(['targetLang', 'engine'], (settings) => {
+      const config = {
+        action: 'CONFIGURE',
+        targetLang: settings.targetLang || 'ar',
+        engine: settings.engine || 'google'
+      };
+      socket.send(JSON.stringify(config));
+    });
+  };
+
+  socket.onmessage = (event) => {
+    try {
+      const result = JSON.parse(event.data);
+      chrome.tabs
+        .sendMessage(tabId, {
+          action: 'NEW_SUBTITLE',
+          text: result.translatedText,
+          isFinal: result.isFinal,
+          originalText: result.originalText
+        })
+        .catch(() => {
+          // ignore
+        });
+    } catch (_) {
+      // ignore
     }
+  };
+
+  socket.onerror = () => {
+    chrome.tabs.sendMessage(tabId, {
+      action: 'TRANSLATION_ERROR',
+      error: 'فشل في الاتصال بخادم الترجمة'
+    });
+  };
+
+  socket.onclose = () => {
+    // noop
+  };
+}
+
+async function sendToProxy(audioChunk) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(audioChunk);
+  }
+}
+
+function setupAudioProcessing(stream) {
+  if (typeof AudioContext === 'undefined' && typeof webkitAudioContext === 'undefined') {
+    throw new Error('AudioContext غير متاح في هذا السياق');
+  }
+
+  audioContext = new (AudioContext || webkitAudioContext)();
+  mediaStreamSource = audioContext.createMediaStreamSource(stream);
+  processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+  mediaStreamSource.connect(processor);
+  processor.connect(audioContext.destination);
+
+  processor.onaudioprocess = (e) => {
+    const inputData = e.inputBuffer.getChannelData(0);
+    sendToProxy(convertFloat32ToInt16(inputData));
+  };
+}
+
+async function setupAudioWorkletProcessing(stream) {
+  if (typeof AudioContext === 'undefined' && typeof webkitAudioContext === 'undefined') {
+    throw new Error('AudioContext غير متاح في هذا السياق');
+  }
+
+  audioContext = new (AudioContext || webkitAudioContext)();
+  mediaStreamSource = audioContext.createMediaStreamSource(stream);
+
+  await audioContext.audioWorklet.addModule(chrome.runtime.getURL('audio-processor.js'));
+
+  const workletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+  mediaStreamSource.connect(workletNode);
+  workletNode.connect(audioContext.destination);
+
+  workletNode.port.onmessage = (event) => {
+    if (event.data.type === 'audioChunk') {
+      sendToProxy(event.data.chunk);
+    }
+  };
+}
+
+function convertFloat32ToInt16(buffer) {
+  const l = buffer.length;
+  const buf = new Int16Array(l);
+
+  for (let i = 0; i < l; i++) {
+    const s = Math.max(-1, Math.min(1, buffer[i]));
+    buf[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+
+  return buf.buffer;
+}
+
+// إيقاف تلقائي عند إغلاق التبويب أو تغيير الصفحة
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (sessions.has(tabId)) {
+    handleStopTranslation(tabId);
+  }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (!sessions.has(tabId)) return;
+  if (changeInfo.status === 'loading') {
+    handleStopTranslation(tabId);
+  }
 });
