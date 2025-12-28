@@ -105,7 +105,26 @@ function removeSubtitleOverlay() {
 // الاستماع للترجمات القادمة من Background
 chrome.runtime.onMessage.addListener((message) => {
     if (message.action === "NEW_SUBTITLE" && subtitleOverlay) {
-        subtitleOverlay.innerText = message.text;
+        if (message.isFinal) {
+            // نتيجة نهائية - عرضها بشكل عادي
+            subtitleOverlay.innerText = message.text;
+            subtitleOverlay.style.color = 'white';
+        } else {
+            // نتيجة جزئية - عرضها بشكل مختلف
+            subtitleOverlay.innerText = message.text + '...';
+            subtitleOverlay.style.color = '#ccc';
+        }
+    } else if (message.action === "TRANSLATION_ERROR" && subtitleOverlay) {
+        subtitleOverlay.innerText = "خطأ: " + message.error;
+        subtitleOverlay.style.color = '#ffcccc';
+
+        // إعادة الحالة إلى غير نشط بعد الخطأ
+        setTimeout(() => {
+            if (floatingIcon) {
+                floatingIcon.classList.remove('active');
+            }
+            isTranslating = false;
+        }, 3000);
     }
 });
 

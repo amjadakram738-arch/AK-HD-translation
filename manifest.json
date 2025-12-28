@@ -8,7 +8,8 @@
     "activeTab",
     "storage",
     "tabCapture",
-    "scripting"
+    "scripting",
+    "background"
   ],
   "host_permissions": [
     "https://api.yourproxy.com/*"
@@ -38,7 +39,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["styles.css", "icons/*"],
+      "resources": ["styles.css", "icons/*", "audio-processor.js"],
       "matches": ["<all_urls>"]
     }
   ]
