@@ -1,201 +1,239 @@
 /**
- * popup.js - Popup Script
- * 
- * المسؤوليات:
- * 1. تحميل وعرض الإعدادات الحالية
- * 2. حفظ التغييرات في chrome.storage
- * 3. التواصل مع Service Worker
- * 4. إدارة عناصر واجهة المستخدم
+ * popup.js - Main Popup Interface
+ * Handles all user interactions with the extension popup
  */
 
-(function() {
-  'use strict';
+document.addEventListener('DOMContentLoaded', () => {
+    loadSettings();
+    setupEventListeners();
+    updateStatus();
+});
 
-  // عناصر DOM
-  const elements = {
-    targetLang: document.getElementById('targetLang'),
-    engine: document.getElementById('engine'),
-    statusIndicator: document.getElementById('statusIndicator'),
-    statusText: document.getElementById('statusText'),
-    showOriginalToggle: document.getElementById('showOriginalToggle'),
-    vadToggle: document.getElementById('vadToggle'),
-    toggleBtn: document.getElementById('toggleBtn'),
-    optionsBtn: document.getElementById('optionsBtn'),
-    helpLink: document.getElementById('helpLink'),
-    privacyLink: document.getElementById('privacyLink')
-  };
-
-  // الإعدادات الحالية
-  let settings = {
-    targetLang: 'ar',
-    engine: 'google',
-    showOriginal: false,
-    vadEnabled: true
-  };
-
-  let isTranslating = false;
-
-  // =============================================================================
-  // دوال مساعدة
-  // =============================================================================
-
-  /**
-   * حفظ الإعدادات
-   */
-  function saveSettings() {
-    chrome.storage.sync.set({
-      targetLang: settings.targetLang,
-      engine: settings.engine,
-      showOriginal: settings.showOriginal,
-      vadEnabled: settings.vadEnabled
-    }, () => {
-      // إرسال التحديثات للنشطة
-      chrome.runtime.sendMessage({
-        action: 'UPDATE_SETTINGS',
-        settings
-      });
+// Load settings from storage
+function loadSettings() {
+    chrome.storage.sync.get([
+        'targetLang', 'sourceLang', 'engine', 'subtitleMode',
+        'subtitleSize', 'subtitlePosition', 'operatingMode', 'audioCaptureMethod'
+    ], (result) => {
+        // Set target language
+        if (result.targetLang) {
+            document.getElementById('target-lang').value = result.targetLang;
+        }
+        
+        // Set source language
+        if (result.sourceLang) {
+            document.getElementById('source-lang').value = result.sourceLang;
+        }
+        
+        // Set translation engine
+        if (result.engine) {
+            document.getElementById('engine').value = result.engine;
+        }
+        
+        // Set subtitle mode
+        if (result.subtitleMode) {
+            document.getElementById('subtitle-mode').value = result.subtitleMode;
+        }
+        
+        // Set subtitle size
+        if (result.subtitleSize) {
+            document.getElementById('subtitle-size').value = result.subtitleSize;
+        }
+        
+        // Set subtitle position
+        if (result.subtitlePosition) {
+            document.getElementById('subtitle-position').value = result.subtitlePosition;
+        }
+        
+        // Set operating mode
+        if (result.operatingMode) {
+            document.getElementById('operating-mode').value = result.operatingMode;
+        }
+        
+        // Set audio capture method
+        if (result.audioCaptureMethod) {
+            document.getElementById('audio-capture').value = result.audioCaptureMethod;
+        }
     });
-  }
+}
 
-  /**
-   * تحديث واجهة المستخدم
-   */
-  function updateUI() {
-    elements.targetLang.value = settings.targetLang;
-    elements.engine.value = settings.engine;
+// Setup event listeners
+function setupEventListeners() {
+    // Toggle translation button
+    document.getElementById('toggle-translation').addEventListener('click', toggleTranslation);
     
-    elements.showOriginalToggle.classList.toggle('active', settings.showOriginal);
-    elements.vadToggle.classList.toggle('active', settings.vadEnabled);
-  }
+    // Advanced options button
+    document.getElementById('advanced-options').addEventListener('click', openAdvancedOptions);
+    
+    // Export subtitles button
+    document.getElementById('export-subtitles').addEventListener('click', exportSubtitles);
+    
+    // Test capture button
+    document.getElementById('test-capture').addEventListener('click', testAudioCapture);
+    
+    // Help button
+    document.getElementById('help').addEventListener('click', showHelp);
+    
+    // Save settings when any select changes
+    const selects = document.querySelectorAll('select');
+    selects.forEach(select => {
+        select.addEventListener('change', saveSettings);
+    });
+}
 
-  /**
-   * تحديث حالة الترجمة
-   */
-  async function updateTranslationStatus() {
-    try {
-      const response = await chrome.runtime.sendMessage({ action: 'GET_TRANSLATION_STATUS' });
-      
-      isTranslating = response?.isTranslating || false;
-      
-      elements.statusIndicator.classList.toggle('active', isTranslating);
-      elements.statusText.textContent = isTranslating ? 'نشط' : 'غير نشط';
-      elements.toggleBtn.textContent = isTranslating ? 'إيقاف الترجمة' : 'بدء الترجمة';
-      
-      // تحديث نص الزر
-      if (isTranslating) {
-        elements.toggleBtn.classList.remove('btn-secondary');
-        elements.toggleBtn.classList.add('btn-primary');
-      } else {
-        elements.toggleBtn.classList.add('btn-secondary');
-        elements.toggleBtn.classList.remove('btn-primary');
-      }
-    } catch (error) {
-      console.error('فشل في الحصول على حالة الترجمة:', error);
-    }
-  }
+// Toggle translation
+function toggleTranslation() {
+    const button = document.getElementById('toggle-translation');
+    const isActive = button.classList.contains('active');
+    
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]) {
+            chrome.tabs.sendMessage(tabs[0].id, { action: 'TOGGLE_TRANSLATION' }, (response) => {
+                if (response?.ok) {
+                    updateStatus(!isActive);
+                    button.classList.toggle('active', !isActive);
+                    button.textContent = isActive ? 'Start Translation' : 'Stop Translation';
+                }
+            });
+        }
+    });
+}
 
-  // =============================================================================
-  // معالجات الأحداث
-  // =============================================================================
-
-  // تغيير لغة الترجمة
-  elements.targetLang.addEventListener('change', () => {
-    settings.targetLang = elements.targetLang.value;
-    saveSettings();
-  });
-
-  // تغيير محرك الترجمة
-  elements.engine.addEventListener('change', () => {
-    settings.engine = elements.engine.value;
-    saveSettings();
-  });
-
-  // تبديل عرض النص الأصلي
-  elements.showOriginalToggle.addEventListener('click', () => {
-    settings.showOriginal = !settings.showOriginal;
-    elements.showOriginalToggle.classList.toggle('active', settings.showOriginal);
-    saveSettings();
-  });
-
-  // تبديل VAD
-  elements.vadToggle.addEventListener('click', () => {
-    settings.vadEnabled = !settings.vadEnabled;
-    elements.vadToggle.classList.toggle('active', settings.vadEnabled);
-    saveSettings();
-  });
-
-  // زر التبديل
-  elements.toggleBtn.addEventListener('click', async () => {
-    try {
-      if (isTranslating) {
-        await chrome.runtime.sendMessage({ action: 'STOP_TRANSLATION' });
-      } else {
-        await chrome.runtime.sendMessage({ action: 'START_TRANSLATION' });
-      }
-      updateTranslationStatus();
-    } catch (error) {
-      console.error('فشل في تبديل الترجمة:', error);
-    }
-  });
-
-  // زر الإعدادات
-  elements.optionsBtn.addEventListener('click', () => {
+// Open advanced options
+function openAdvancedOptions() {
     chrome.runtime.openOptionsPage();
-  });
+    window.close();
+}
 
-  // روابط المساعدة والخصوصية
-  elements.helpLink.addEventListener('click', (e) => {
-    e.preventDefault();
-    chrome.tabs.create({ url: 'https://github.com/amjadakram738-arch/AK-HD-translation' });
-  });
+// Export subtitles
+function exportSubtitles() {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]) {
+            chrome.tabs.sendMessage(tabs[0].id, { action: 'EXPORT_SUBTITLES' });
+        }
+    });
+}
 
-  elements.privacyLink.addEventListener('click', (e) => {
-    e.preventDefault();
-    chrome.tabs.create({ url: 'https://github.com/amjadakram738-arch/AK-HD-translation#privacy' });
-  });
+// Test audio capture
+function testAudioCapture() {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]) {
+            chrome.runtime.sendMessage({
+                action: 'TEST_AUDIO_CAPTURE',
+                tabId: tabs[0].id
+            }, (response) => {
+                if (response?.success) {
+                    showNotification('Audio capture test successful!');
+                } else {
+                    showNotification(`Test failed: ${response?.error || 'Unknown error'}`);
+                }
+            });
+        }
+    });
+}
 
-  // =============================================================================
-  // الاستماع للرسائل
-  // =============================================================================
+// Show help
+function showHelp() {
+    const helpMessage = `
+Video Translate AI Help:
 
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message.action === 'TRANSLATION_STATUS_CHANGED') {
-      isTranslating = message.isTranslating;
-      updateTranslationStatus();
+1. Click the floating icon on any video to start translation
+2. Use popup to change settings
+3. Advanced options available in the options page
+4. Export subtitles for offline use
+5. Test audio capture to verify functionality
+
+Supported sites: YouTube, Vimeo, Dailymotion, Twitch, and most video sites.
+`;
+    
+    alert(helpMessage);
+}
+
+// Save settings
+function saveSettings() {
+    const settings = {
+        targetLang: document.getElementById('target-lang').value,
+        sourceLang: document.getElementById('source-lang').value,
+        engine: document.getElementById('engine').value,
+        subtitleMode: document.getElementById('subtitle-mode').value,
+        subtitleSize: document.getElementById('subtitle-size').value,
+        subtitlePosition: document.getElementById('subtitle-position').value,
+        operatingMode: document.getElementById('operating-mode').value,
+        audioCaptureMethod: document.getElementById('audio-capture').value
+    };
+    
+    chrome.storage.sync.set(settings, () => {
+        // Send settings to background for immediate application
+        chrome.runtime.sendMessage({
+            action: 'UPDATE_SETTINGS',
+            settings: settings
+        });
+        
+        // Show save confirmation
+        const saveBtn = document.getElementById('advanced-options');
+        const originalText = saveBtn.textContent;
+        saveBtn.textContent = '✓ Saved';
+        
+        setTimeout(() => {
+            saveBtn.textContent = originalText;
+        }, 2000);
+    });
+}
+
+// Update translation status
+function updateStatus(translating = false) {
+    const statusEl = document.getElementById('status');
+    const toggleBtn = document.getElementById('toggle-translation');
+    
+    if (translating) {
+        statusEl.textContent = 'Translating';
+        statusEl.className = 'status-on';
+        toggleBtn.textContent = 'Stop Translation';
+        toggleBtn.classList.add('active');
+    } else {
+        statusEl.textContent = 'Stopped';
+        statusEl.className = 'status-off';
+        toggleBtn.textContent = 'Start Translation';
+        toggleBtn.classList.remove('active');
     }
-  });
+}
 
-  // =============================================================================
-  // التهيئة
-  // =============================================================================
+// Show notification in popup
+function showNotification(message) {
+    const notification = document.createElement('div');
+    notification.className = 'notification';
+    notification.textContent = message;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
+}
 
-  async function initialize() {
-    try {
-      // تحميل الإعدادات
-      const stored = await new Promise((resolve) => {
-        chrome.storage.sync.get(
-          ['targetLang', 'engine', 'showOriginal', 'vadEnabled'],
-          resolve
-        );
-      });
+// Check translation status periodically
+setInterval(() => {
+    chrome.runtime.sendMessage({ action: 'GET_TRANSLATION_STATUS' }, (response) => {
+        if (response?.isTranslating !== undefined) {
+            updateStatus(response.isTranslating);
+        }
+    });
+}, 1000);
 
-      settings = {
-        targetLang: stored.targetLang || 'ar',
-        engine: stored.engine || 'google',
-        showOriginal: stored.showOriginal || false,
-        vadEnabled: stored.vadEnabled !== false
-      };
-
-      updateUI();
-      await updateTranslationStatus();
-
-      // تحديث دوري للحالة
-      setInterval(updateTranslationStatus, 2000);
-    } catch (error) {
-      console.error('فشل في تهيئة Popup:', error);
-    }
-  }
-
-  // بدء التهيئة
-  initialize();
-})();
+// Add CSS for notification
+const style = document.createElement('style');
+style.textContent = `
+.notification {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #333;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 4px;
+    z-index: 9999;
+    font-size: 0.9rem;
+}
+`;
+document.head.appendChild(style);

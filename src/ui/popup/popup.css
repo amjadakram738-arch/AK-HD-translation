@@ -1,0 +1,162 @@
+/* Popup styles */
+.popup-container {
+    width: 320px;
+    padding: 15px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f5f5f5;
+}
+
+.popup-container header {
+    text-align: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 15px;
+}
+
+.popup-container h1 {
+    font-size: 1.2rem;
+    margin: 0;
+    color: #1a73e8;
+}
+
+.popup-container .subtitle {
+    font-size: 0.8rem;
+    color: #666;
+    margin: 5px 0 0;
+}
+
+.field {
+    margin-bottom: 12px;
+}
+
+.field label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #333;
+}
+
+.field select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    background-color: white;
+}
+
+.status-panel {
+    margin: 15px 0;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+#status.status-on {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+#status.status-off {
+    color: #f44336;
+}
+
+.controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+button {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+.toggle-btn {
+    background-color: #1a73e8;
+    color: white;
+}
+
+.toggle-btn:hover {
+    background-color: #1557b0;
+}
+
+.toggle-btn.active {
+    background-color: #f44336;
+}
+
+.toggle-btn.active:hover {
+    background-color: #d32f2f;
+}
+
+.options-btn {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.options-btn:hover {
+    background-color: #388E3C;
+}
+
+footer {
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+}
+
+.footer-links {
+    display: flex;
+    justify-content: space-between;
+    gap: 5px;
+}
+
+.footer-btn {
+    flex: 1;
+    padding: 6px;
+    background-color: #f1f1f1;
+    color: #333;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+
+.footer-btn:hover {
+    background-color: #e0e0e0;
+}
+
+/* Dark theme support */
+@media (prefers-color-scheme: dark) {
+    .popup-container {
+        background-color: #2d2d2d;
+        color: #f5f5f5;
+    }
+    
+    .field label {
+        color: #f5f5f5;
+    }
+    
+    .field select {
+        background-color: #3d3d3d;
+        color: #f5f5f5;
+        border-color: #555;
+    }
+    
+    .status-panel {
+        background: #3d3d3d;
+    }
+    
+    .footer-btn {
+        background-color: #3d3d3d;
+        color: #f5f5f5;
+    }
+}

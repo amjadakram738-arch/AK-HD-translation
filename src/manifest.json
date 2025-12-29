@@ -1,9 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Video Translate AI",
-  "version": "1.0.0",
-  "description": "ترجمة فورية للفيديوهات باستخدام الذكاء الاصطناعي - يكتشف الفيديوهات تلقائياً ويحول الكلام إلى نص ويترجمه ويعرض الترجمات بشكل متزامن",
-  "default_locale": "en",
+  "version": "1.1.0",
+  "description": "Automatic video translation tool with AI-powered speech-to-text and translation capabilities.",
   "permissions": [
     "tabs",
     "activeTab",
@@ -11,32 +10,44 @@
     "tabCapture",
     "scripting",
     "offscreen",
-    "contextMenus"
+    "contextMenus",
+    "notifications",
+    "clipboardWrite",
+    "clipboardRead",
+    "downloads",
+    "unlimitedStorage"
+  ],
+  "optional_permissions": [
+    "microphone",
+    "desktopCapture"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "src/background/service_worker.js",
-    "type": "module"
+    "service_worker": "background/service_worker.js"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["src/content/content_script.js"],
-      "css": ["src/overlay/overlay_styles.css"],
+      "js": ["content/content_script.js"],
+      "css": ["overlay/overlay_styles.css"],
       "all_frames": true,
       "match_about_blank": true,
       "run_at": "document_end"
     }
   ],
   "action": {
-    "default_popup": "src/ui/popup/popup.html",
+    "default_popup": "ui/popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
+  },
+  "options_ui": {
+    "page": "ui/options/options.html",
+    "open_in_tab": true
   },
   "icons": {
     "16": "icons/icon16.png",
@@ -46,42 +57,37 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "src/overlay/overlay_styles.css",
-        "src/overlay/overlay_renderer.js",
+        "overlay/overlay_styles.css",
         "icons/*",
-        "src/workers/*"
+        "workers/audio_processor.worker.js",
+        "workers/audio_processor.worklet.js",
+        "ai_adapters/stt/mock_stt.js",
+        "ai_adapters/translation/mock_translation.js"
       ],
-      "matches": ["<all_urls>"]
+      "matches": ["<all_urls>"],
+      "extension_ids": ["*"],
+      "use_dynamic_url": true
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://*.googleapis.com https://*.openai.com https://*.deepL.com wss://*; worker-src 'self' blob:;",
-    "content_scripts": "script-src 'self' 'unsafe-inline'; object-src 'self';"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' wss://api.yourproxy.com https://api.yourproxy.com ws://localhost:* http://localhost:*; worker-src 'self' blob:",
+    "sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-eval'"
   },
-  "side_panel": {
-    "default_path": "src/ui/popup/popup.html"
-  },
+  "minimum_chrome_version": "109",
   "commands": {
     "toggle-translation": {
       "suggested_key": {
         "default": "Ctrl+Shift+T",
         "mac": "Command+Shift+T"
       },
-      "description": "بدء/إيقاف الترجمة الفورية"
+      "description": "Toggle video translation"
     },
-    "toggle-subtitles": {
+    "show-options": {
       "suggested_key": {
-        "default": "Ctrl+Shift+S",
-        "mac": "Command+Shift+S"
+        "default": "Ctrl+Shift+O",
+        "mac": "Command+Shift+O"
       },
-      "description": "إظهار/إخفاء الترجمات"
-    },
-    "change-language": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+L",
-        "mac": "Command+Shift+L"
-      },
-      "description": "تغيير لغة الترجمة"
+      "description": "Open extension options"
     }
   }
 }

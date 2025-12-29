@@ -1,769 +1,605 @@
 /**
- * content_script.js - Content Script
- * 
- * المسؤوليات الرئيسية:
- * 1. اكتشاف عناصر الفيديو في الصفحة باستخدام MutationObserver
- * 2. إضافة الأيقونات العائمة فوق الفيديوهات المكتشفة
- * 3. عرض الترجمات المتزامنة (Overlay)
- * 4. التواصل مع Service Worker
- * 5. معالجة إيماءات المستخدم
+ * content_script.js
+ * Responsibilities: Video detection, floating icon rendering, subtitle display,
+ * and handling all user interactions with the video translation interface.
  */
 
-(function() {
-  'use strict';
+const videos = new Set();
+const iconsByVideo = new WeakMap();
+let subtitleOverlay = null;
+let overlayTranslatedEl = null;
+let overlayOriginalEl = null;
+let isTranslating = false;
+let activeVideo = null;
+let settingsCache = null;
+let subtitlesHistory = [];
+let drmWarningShown = false;
 
-  // =============================================================================
-  // الحالة العامة
-  // =============================================================================
+// Initialize extension
+function initializeExtension() {
+  loadSettings();
+  initVideoDetection();
+  setupEventListeners();
+  
+  console.log('Video Translate AI content script loaded');
+}
 
-  const state = {
-    videos: new Map(),
-    iconsByVideo: new WeakMap(),
-    activeVideo: null,
-    isTranslating: false,
-    settings: {
-      targetLang: 'ar',
-      sourceLang: 'auto',
-      engine: 'google',
-      subtitleMode: 'translated',
-      subtitleSize: 'medium',
-      subtitlePosition: 'bottom',
-      showOriginal: false,
-      autoDetect: true
-    },
-    sessionData: null,
-    subtitles: []
-  };
+// Load settings from storage
+async function loadSettings() {
+  const settings = await getAllSettings();
+  settingsCache = settings;
+  applyOverlayStyle();
+}
 
-  let subtitleOverlay = null;
-  let overlayContainer = null;
-  let overlayTranslatedEl = null;
-  let overlayOriginalEl = null;
-  let uiUpdateScheduled = false;
+// Get all settings from storage
+function getAllSettings() {
+  return new Promise((resolve) => {
+    chrome.storage.sync.get(null, (result) => {
+      resolve(result || {});
+    });
+  });
+}
 
-  // =============================================================================
-  // دوال مساعدة
-  // =============================================================================
+// Apply overlay styles based on settings
+function applyOverlayStyle() {
+  if (!subtitleOverlay || !settingsCache) return;
+  
+  subtitleOverlay.classList.toggle('size-small', settingsCache.subtitleSize === 'small');
+  subtitleOverlay.classList.toggle('size-medium', settingsCache.subtitleSize === 'medium');
+  subtitleOverlay.classList.toggle('size-large', settingsCache.subtitleSize === 'large');
+  
+  subtitleOverlay.classList.toggle('pos-top', settingsCache.subtitlePosition === 'top');
+  subtitleOverlay.classList.toggle('pos-middle', settingsCache.subtitlePosition === 'middle');
+  subtitleOverlay.classList.toggle('pos-bottom', settingsCache.subtitlePosition === 'bottom');
+  
+  const rtl = isRtlLang(settingsCache.targetLang);
+  subtitleOverlay.dir = rtl ? 'rtl' : 'ltr';
+}
 
-  /**
-   * التحقق مما إذا كانت اللغة RTL
-   */
-  function isRtlLang(lang) {
-    const code = (lang || '').toLowerCase();
-    return ['ar', 'fa', 'he', 'ur', 'ku', 'ps'].includes(code);
-  }
+// Check if language is RTL
+function isRtlLang(lang) {
+  const code = (lang || '').toLowerCase();
+  return code === 'ar' || code === 'fa' || code === 'he' || code === 'ur' || code === 'yi';
+}
 
-  /**
-   * تطبيق أنماط Overlay
-   */
-  function applyOverlayStyle() {
-    if (!subtitleOverlay) return;
-
-    // إزالة الكلاسات القديمة
-    subtitleOverlay.classList.remove(
-      'size-small', 'size-medium', 'size-large',
-      'pos-top', 'pos-middle', 'pos-bottom',
-      'mode-translated', 'mode-original', 'mode-both'
-    );
-
-    // إضافة الكلاسات الجديدة
-    subtitleOverlay.classList.add(`size-${state.settings.subtitleSize}`);
-    subtitleOverlay.classList.add(`pos-${state.settings.subtitlePosition}`);
-    
-    const modeMap = {
-      'translated': 'mode-translated',
-      'original': 'mode-original',
-      'both': 'mode-both'
-    };
-    subtitleOverlay.classList.add(modeMap[state.settings.subtitleMode] || 'mode-translated');
-
-    // اتجاه النص
-    const rtl = isRtlLang(state.settings.targetLang);
-    subtitleOverlay.dir = rtl ? 'rtl' : 'ltr';
-
-    // تخزين الإعدادات
-    try {
-      chrome.storage.sync.set({
-        subtitleSize: state.settings.subtitleSize,
-        subtitlePosition: state.settings.subtitlePosition,
-        subtitleMode: state.settings.subtitleMode
-      });
-    } catch (e) {
-      console.warn('فشل في حفظ الإعدادات:', e);
-    }
-  }
-
-  /**
-   * تحميل الإعدادات
-   */
-  function loadSettings() {
-    chrome.storage.sync.get(
-      ['targetLang', 'sourceLang', 'engine', 'subtitleMode', 'subtitleSize', 'subtitlePosition', 'showOriginal'],
-      (result) => {
-        state.settings = {
-          ...state.settings,
-          ...(result || {})
-        };
-        applyOverlayStyle();
-      }
-    );
-  }
-
-  /**
-   * الاستماع لتغييرات الإعدادات
-   */
+// Setup event listeners
+function setupEventListeners() {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'sync') return;
-
-    const next = { ...state.settings };
+    
+    const next = { ...settingsCache };
     for (const [key, change] of Object.entries(changes)) {
       next[key] = change.newValue;
     }
-    state.settings = next;
+    settingsCache = next;
     applyOverlayStyle();
   });
+  
+  // Listen for messages from background
+  chrome.runtime.onMessage.addListener(handleBackgroundMessage);
+}
 
-  /**
-   * استخراج تلميحات اللغة من الفيديو
-   */
-  function getVideoLangHints(video) {
-    const hints = {
-      elementLang: null,
-      audioTrackLang: null,
-      captionTrackLangs: [],
-      detectedDRM: false
-    };
-
-    try {
-      // محاولة الحصول على سمة lang
-      hints.elementLang = video.getAttribute('lang') || 
-        video.closest('[lang]')?.getAttribute('lang') || 
-        document.documentElement.lang || 
-        null;
-    } catch {
-      // تجاهل الأخطاء
-    }
-
-    try {
-      // التحقق من مسارات الصوت
-      if (video.audioTracks && video.audioTracks.length > 0) {
-        hints.audioTrackLang = video.audioTracks[0].language || null;
-      }
-    } catch {
-      // قد لا تكون مدعومة في جميع المتصفحات
-    }
-
-    try {
-      // البحث عن مسارات الترجمة
-      const tracks = video.querySelectorAll('track[kind="subtitles"], track[kind="captions"], track[kind="metadata"]');
-      for (const t of tracks) {
-        const lang = t.getAttribute('srclang');
-        if (lang) hints.captionTrackLangs.push(lang);
-      }
-    } catch {
-      // تجاهل الأخطاء
-    }
-
-    return hints;
+// Handle messages from background script
+function handleBackgroundMessage(message) {
+  if (!message?.action) return;
+  
+  switch (message.action) {
+    case 'NEW_SUBTITLE':
+      handleNewSubtitle(message);
+      break;
+    case 'TRANSLATION_ERROR':
+      handleTranslationError(message);
+      break;
+    case 'TRANSLATION_STATUS_CHANGED':
+      handleTranslationStatusChange(message);
+      break;
+    case 'DRM_DETECTED':
+      handleDRMDetected(message);
+      break;
+    case 'TOGGLE_TRANSLATION':
+      toggleTranslationForActiveVideo();
+      break;
   }
+}
 
-  /**
-   * الحصول على أفضل فيديو للعرض
-   */
-  function getBestVideoForOverlay() {
-    const visibleVideos = [...state.videos.values()]
-      .filter(item => {
-        if (!item.video.isConnected) return false;
-        
-        const rect = item.video.getBoundingClientRect();
-        return rect.width >= 200 && 
-               rect.height >= 120 &&
-               rect.bottom > 0 && 
-               rect.right > 0 && 
-               rect.top < window.innerHeight && 
-               rect.left < window.innerWidth;
-      })
-      .sort((a, b) => {
-        const rectA = a.video.getBoundingClientRect();
-        const rectB = b.video.getBoundingClientRect();
-        return (rectB.width * rectB.height) - (rectA.width * rectA.height);
-      });
-
-    return visibleVideos[0]?.video || null;
+// Handle new subtitle from translation
+function handleNewSubtitle(message) {
+  if (!subtitleOverlay) {
+    if (!activeVideo) activeVideo = getBestVideoForOverlay();
+    if (activeVideo) createSubtitleOverlay(activeVideo);
   }
-
-  // =============================================================================
-  // اكتشاف الفيديوهات
-  // =============================================================================
-
-  /**
-   * مسح شجرة DOM للعثور على الفيديوهات
-   */
-  function scanTreeForVideos(root) {
-    if (!root) return;
-
-    // التحقق من العنصر نفسه إذا كان فيديو
-    if (root.nodeType === Node.ELEMENT_NODE && root.tagName === 'VIDEO') {
-      attachFloatingIcon(root);
-      return;
-    }
-
-    // البحث باستخدام querySelectorAll
-    if (root.querySelectorAll) {
-      const found = root.querySelectorAll('video');
-      for (const v of found) {
-        attachFloatingIcon(v);
-      }
-    }
-
-    // البحث في Shadow DOM
-    if (root.nodeType === Node.ELEMENT_NODE && root.shadowRoot) {
-      scanTreeForVideos(root.shadowRoot);
-    }
-
-    // استخدام TreeWalker للمستندات
-    if (root.nodeType === Node.DOCUMENT_NODE || root.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
-      try {
-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-        let current = walker.currentNode;
-        while (current) {
-          if (current.tagName === 'VIDEO') {
-            attachFloatingIcon(current);
-          }
-          if (current.shadowRoot) {
-            scanTreeForVideos(current.shadowRoot);
-          }
-          current = walker.nextNode();
-        }
-      } catch (e) {
-        console.warn('فشل في استخدام TreeWalker:', e);
-      }
-    }
-  }
-
-  /**
-   * إنشاء الأيقونة العائمة وإضافتها
-   */
-  function attachFloatingIcon(video) {
-    if (!video || video.dataset.hasTranslateIcon) return;
-
-    // التحقق من إمكانية التشغيل
-    if (video.readyState === 0 && !video.poster && !video.src) {
-      // الفيديو ليس جاهزاً بعد، إعادة المحاولة لاحقاً
-      const observer = new MutationObserver((mutations, obs) => {
-        if (video.readyState > 0 || video.poster || video.src) {
-          obs.disconnect();
-          attachFloatingIcon(video);
-        }
-      });
-      observer.observe(video, { attributes: true });
-      return;
-    }
-
-    const icon = document.createElement('div');
-    icon.className = 'v-translate-icon';
-    icon.innerHTML = '<span class="v-translate-icon-text">文</span>';
-    icon.title = 'Video Translate AI - اضغط لبدء الترجمة الفورية';
-    icon.setAttribute('role', 'button');
-    icon.setAttribute('aria-label', 'بدء الترجمة الفورية');
-    icon.setAttribute('tabindex', '0');
-
-    // معالج النقر
-    icon.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleTranslation(video);
+  
+  renderSubtitle({
+    translatedText: message.text,
+    originalText: message.originalText,
+    isFinal: message.isFinal,
+    detectedLang: message.detectedLang
+  });
+  
+  // Add to history
+  if (message.isFinal && message.text) {
+    subtitlesHistory.push({
+      text: message.text,
+      originalText: message.originalText,
+      detectedLang: message.detectedLang,
+      timestamp: Date.now()
     });
-
-    // دعم لوحة المفاتيح
-    icon.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        toggleTranslation(video);
-      }
-    });
-
-    document.body.appendChild(icon);
-
-    // تخزين المراجع
-    state.videos.set(video, {
-      video,
-      icon,
-      addedAt: Date.now()
-    });
-    state.iconsByVideo.set(video, icon);
-    video.dataset.hasTranslateIcon = 'true';
   }
+  
+  scheduleUiUpdate();
+}
 
-  /**
-   * إزالة الأيقونة
-   */
-  function removeIcon(video) {
-    const item = state.videos.get(video);
-    if (item?.icon) {
-      item.icon.remove();
-    }
-    state.videos.delete(video);
-    state.iconsByVideo.delete(video);
-    video.dataset.hasTranslateIcon = 'false';
+// Handle translation error
+function handleTranslationError(message) {
+  if (!subtitleOverlay) {
+    if (!activeVideo) activeVideo = getBestVideoForOverlay();
+    if (activeVideo) createSubtitleOverlay(activeVideo);
   }
-
-  // =============================================================================
-  // إدارة الترجمة
-  // =============================================================================
-
-  /**
-   * تبديل حالة الترجمة
-   */
-  function toggleTranslation(video) {
-    if (!video) return;
-
-    if (state.isTranslating && state.activeVideo === video) {
-      // إيقاف الترجمة
-      stopTranslation();
-    } else {
-      // بدء الترجمة
-      startTranslation(video);
-    }
-  }
-
-  /**
-   * بدء الترجمة
-   */
-  function startTranslation(video) {
-    if (state.isTranslating) {
-      // إيقاف الترجمة السابقة أولاً
-      stopTranslation();
-    }
-
-    state.isTranslating = true;
-    state.activeVideo = video;
-    state.subtitles = [];
-
-    // تحديث حالة الأيقونات
+  
+  if (!subtitleOverlay || !overlayTranslatedEl || !overlayOriginalEl) return;
+  
+  overlayTranslatedEl.textContent = `Error: ${message.error}`;
+  overlayOriginalEl.textContent = '';
+  subtitleOverlay.classList.remove('partial');
+  
+  setTimeout(() => {
+    isTranslating = false;
+    activeVideo = null;
     updateIconsState();
-
-    // إنشاء Overlay
-    createSubtitleOverlay(video);
-
-    // استخراج تلميحات اللغة
-    const hints = getVideoLangHints(video);
-
-    // إرسال طلب البدء
-    chrome.runtime.sendMessage({
-      action: 'START_TRANSLATION',
-      hints
-    }, (response) => {
-      if (chrome.runtime.lastError) {
-        showError('فشل في الاتصال بالإضافة: ' + chrome.runtime.lastError.message);
-        return;
-      }
-      
-      if (!response?.success) {
-        showError(response?.message || response?.error || 'فشل في بدء الترجمة');
-        stopTranslation();
-      }
-    });
-  }
-
-  /**
-   * إيقاف الترجمة
-   */
-  function stopTranslation() {
-    if (!state.isTranslating) return;
-
-    state.isTranslating = false;
-    state.activeVideo = null;
-    state.subtitles = [];
-
-    // تحديث حالة الأيقونات
-    updateIconsState();
-
-    // إزالة Overlay
     removeSubtitleOverlay();
+  }, 2500);
+}
 
-    // إرسال طلب الإيقاف
-    chrome.runtime.sendMessage({ action: 'STOP_TRANSLATION' }, () => {
-      // تجاهل الأخطاء
-    });
+// Handle translation status change
+function handleTranslationStatusChange(message) {
+  isTranslating = Boolean(message.isTranslating);
+  if (!isTranslating) {
+    activeVideo = null;
+    updateIconsState();
+    removeSubtitleOverlay();
+  } else {
+    updateIconsState();
+    if (activeVideo && !subtitleOverlay) {
+      createSubtitleOverlay(activeVideo);
+    }
   }
+}
 
-  /**
-   * تحديث حالة الأيقونات
-   */
-  function updateIconsState() {
-    for (const [video, item] of state.videos) {
-      if (!item.icon) continue;
-      
-      const isActive = state.isTranslating && video === state.activeVideo;
-      item.icon.classList.toggle('active', isActive);
-      item.icon.classList.toggle('inactive', !isActive);
+// Handle DRM detection
+function handleDRMDetected(message) {
+  if (drmWarningShown) return;
+  drmWarningShown = true;
+  
+  if (!subtitleOverlay) {
+    if (!activeVideo) activeVideo = getBestVideoForOverlay();
+    if (activeVideo) createSubtitleOverlay(activeVideo);
+  }
+  
+  if (subtitleOverlay && overlayTranslatedEl) {
+    overlayTranslatedEl.textContent = message.warning || 'DRM protected content detected';
+    overlayTranslatedEl.style.color = '#ffcc00';
+    
+    setTimeout(() => {
+      if (overlayTranslatedEl) {
+        overlayTranslatedEl.textContent = '';
+        overlayTranslatedEl.style.color = '';
+      }
+    }, 5000);
+  }
+}
+
+// Toggle translation for active video
+function toggleTranslationForActiveVideo() {
+  const video = getBestVideoForOverlay();
+  if (video) {
+    toggleTranslation(video);
+  }
+}
+
+// Video detection and management
+function initVideoDetection() {
+  scanTreeForVideos(document);
+  
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        scanTreeForVideos(node);
+      }
     }
     scheduleUiUpdate();
-  }
-
-  // =============================================================================
-  // عرض الترجمات
-  // =============================================================================
-
-  /**
-   * إنشاء Overlay الترجمات
-   */
-  function createSubtitleOverlay(video) {
-    if (subtitleOverlay) return;
-
-    // إنشاء الحاوية الرئيسية
-    subtitleOverlay = document.createElement('div');
-    subtitleOverlay.className = 'v-translate-overlay size-medium pos-bottom mode-translated';
-    subtitleOverlay.setAttribute('role', 'status');
-    subtitleOverlay.setAttribute('aria-live', 'polite');
-
-    // إنشاء عنصر النص المترجم
-    overlayTranslatedEl = document.createElement('div');
-    overlayTranslatedEl.className = 'v-translate-line v-translate-translated';
-    overlayTranslatedEl.setAttribute('data-placeholder', 'جاري الترجمة...');
-
-    // إنشاء عنصر النص الأصلي (اختياري)
-    overlayOriginalEl = document.createElement('div');
-    overlayOriginalEl.className = 'v-translate-line v-translate-original';
-    overlayOriginalEl.style.display = 'none';
-
-    // تجميع العناصر
-    overlayContainer = document.createElement('div');
-    overlayContainer.className = 'v-translate-container';
-
-    overlayContainer.appendChild(overlayTranslatedEl);
-    overlayContainer.appendChild(overlayOriginalEl);
-    subtitleOverlay.appendChild(overlayContainer);
-
-    // إضافة نص البداية
-    overlayTranslatedEl.textContent = 'جاري تحميل الترجمة...';
-
-    // إضافة Overlay للصفحة
-    document.body.appendChild(subtitleOverlay);
-
-    // تطبيق الأنماط
-    applyOverlayStyle();
-    scheduleUiUpdate();
-  }
-
-  /**
-   * إزالة Overlay
-   */
-  function removeSubtitleOverlay() {
-    if (subtitleOverlay) {
-      subtitleOverlay.remove();
-      subtitleOverlay = null;
-      overlayContainer = null;
-      overlayTranslatedEl = null;
-      overlayOriginalEl = null;
-    }
-  }
-
-  /**
-   * عرض الترجمة
-   */
-  function renderSubtitle(data) {
-    if (!subtitleOverlay || !overlayTranslatedEl) return;
-
-    const { translatedText, originalText, isFinal, timestamp } = data;
-
-    // إضافة للذاكرة
-    if (translatedText) {
-      state.subtitles.push({
-        translated: translatedText,
-        original: originalText,
-        timestamp: timestamp || Date.now(),
-        isFinal
-      });
-    }
-
-    // تحديث الأنماط
-    subtitleOverlay.classList.toggle('partial', !isFinal);
-    subtitleOverlay.classList.toggle('final', isFinal);
-
-    // تحديد الوضع
-    const mode = state.settings.subtitleMode;
-
-    if (mode === 'original') {
-      overlayTranslatedEl.textContent = originalText || '';
-      overlayOriginalEl.style.display = 'none';
-    } else if (mode === 'both') {
-      overlayTranslatedEl.textContent = translatedText || '';
-      overlayOriginalEl.textContent = originalText || '';
-      overlayOriginalEl.style.display = '';
-    } else {
-      // الوضع الافتراضي: مترجم فقط
-      overlayTranslatedEl.textContent = translatedText || '';
-      overlayOriginalEl.textContent = '';
-      overlayOriginalEl.style.display = 'none';
-    }
-
-    // تأثير بصري للتحديث
-    if (isFinal) {
-      subtitleOverlay.classList.add('updated');
-      setTimeout(() => subtitleOverlay?.classList.remove('updated'), 300);
-    }
-
-    scheduleUiUpdate();
-  }
-
-  /**
-   * عرض رسالة خطأ
-   */
-  function showError(message, duration = 3000) {
-    if (!subtitleOverlay) {
-      if (state.activeVideo) {
-        createSubtitleOverlay(state.activeVideo);
-      } else {
-        // إنشاء Overlay بسيط للخطأ
-        subtitleOverlay = document.createElement('div');
-        subtitleOverlay.className = 'v-translate-overlay size-medium pos-bottom';
-        document.body.appendChild(subtitleOverlay);
-      }
-    }
-
-    if (overlayTranslatedEl) {
-      overlayTranslatedEl.innerHTML = `<span class="error">خطأ: ${escapeHtml(message)}</span>`;
-      overlayOriginalEl.textContent = '';
-    }
-
-    if (duration > 0) {
-      setTimeout(() => {
-        if (state.isTranslating) {
-          overlayTranslatedEl.textContent = 'جاري إعادة الاتصال...';
-        } else {
-          stopTranslation();
-        }
-      }, duration);
-    }
-  }
-
-  /**
-   * تهريب HTML
-   */
-  function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  // =============================================================================
-  // تحديث المواقع
-  // =============================================================================
-
-  function scheduleUiUpdate() {
-    if (uiUpdateScheduled) return;
-    uiUpdateScheduled = true;
-    requestAnimationFrame(() => {
-      uiUpdateScheduled = false;
-      updateUiPositions();
-    });
-  }
-
-  function updateUiPositions() {
-    // تحديث مواقع الأيقونات
-    for (const [video, item] of state.videos) {
-      if (!video.isConnected) {
-        removeIcon(video);
-        continue;
-      }
-
-      if (!item.icon) continue;
-
-      const rect = video.getBoundingClientRect();
-
-      // التحقق من الرؤية
-      const visible = rect.width >= 160 &&
-                      rect.height >= 90 &&
-                      rect.bottom > 0 &&
-                      rect.right > 0 &&
-                      rect.top < window.innerHeight &&
-                      rect.left < window.innerWidth;
-
-      if (!visible) {
-        item.icon.style.display = 'none';
-        continue;
-      }
-
-      item.icon.style.display = 'flex';
-      item.icon.style.top = `${Math.max(8, rect.top + 10)}px`;
-      item.icon.style.left = `${Math.max(8, rect.left + 10)}px`;
-    }
-
-    // تحديث موقع Overlay
-    if (subtitleOverlay && (state.activeVideo?.isConnected || state.isTranslating)) {
-      const video = state.activeVideo?.isConnected ? state.activeVideo : getBestVideoForOverlay();
-      
-      if (!state.activeVideo && video) {
-        state.activeVideo = video;
-      }
-
-      if (state.activeVideo) {
-        const rect = state.activeVideo.getBoundingClientRect();
-        const x = rect.left + rect.width / 2;
-
-        let y;
-        if (state.settings.subtitlePosition === 'top') {
-          y = rect.top + rect.height * 0.18;
-        } else if (state.settings.subtitlePosition === 'middle') {
-          y = rect.top + rect.height * 0.65;
-        } else {
-          y = rect.top + rect.height * 0.88;
-        }
-
-        subtitleOverlay.style.left = `${x}px`;
-        subtitleOverlay.style.top = `${y}px`;
-        subtitleOverlay.style.maxWidth = `${Math.min(rect.width * 0.92, 900)}px`;
-      }
-    }
-  }
-
-  // =============================================================================
-  // التعامل مع رسائل الـ Extension
-  // =============================================================================
-
-  chrome.runtime.onMessage.addListener((message) => {
-    if (!message?.action) return;
-
-    switch (message.action) {
-      case 'NEW_SUBTITLE':
-        renderSubtitle({
-          translatedText: message.text,
-          originalText: message.originalText,
-          isFinal: message.isFinal,
-          timestamp: message.timestamp
-        });
-        break;
-
-      case 'TRANSLATION_ERROR':
-        showError(message.message || message.error);
-        stopTranslation();
-        break;
-
-      case 'TRANSLATION_STATUS_CHANGED':
-        state.isTranslating = Boolean(message.isTranslating);
-        if (!state.isTranslating) {
-          state.activeVideo = null;
-          updateIconsState();
-          removeSubtitleOverlay();
-        } else {
-          updateIconsState();
-          if (state.activeVideo && !subtitleOverlay) {
-            createSubtitleOverlay(state.activeVideo);
-          }
-        }
-        break;
-
-      case 'TRANSLATION_STARTED':
-        state.sessionData = message.sessionData;
-        if (state.activeVideo && !subtitleOverlay) {
-          createSubtitleOverlay(state.activeVideo);
-        }
-        if (overlayTranslatedEl) {
-          overlayTranslatedEl.textContent = 'جاري الاستماع...';
-        }
-        break;
-
-      case 'TRANSLATION_STOPPED':
-        if (overlayTranslatedEl) {
-          overlayTranslatedEl.textContent = 'تم إيقاف الترجمة';
-        }
-        setTimeout(() => {
-          if (!state.isTranslating) {
-            stopTranslation();
-          }
-        }, 1500);
-        break;
-
-      case 'SETTINGS_UPDATED':
-        state.settings = { ...state.settings, ...message.settings };
-        applyOverlayStyle();
-        break;
-
-      case 'TOGGLE_TRANSLATION':
-        if (state.activeVideo) {
-          toggleTranslation(state.activeVideo);
-        }
-        break;
-
-      case 'TOGGLE_SUBTITLES':
-        if (subtitleOverlay) {
-          subtitleOverlay.classList.toggle('hidden');
-        }
-        break;
-
-      case 'CYCLE_LANGUAGE':
-        // سيتم تنفيذه لاحقاً
-        break;
-    }
   });
+  
+  observer.observe(document.documentElement || document.body, {
+    childList: true,
+    subtree: true
+  });
+  
+  window.addEventListener('scroll', scheduleUiUpdate, { passive: true });
+  window.addEventListener('resize', scheduleUiUpdate);
+  document.addEventListener('fullscreenchange', scheduleUiUpdate);
+  
+  scheduleUiUpdate();
+}
 
-  // =============================================================================
-  // تهيئة المراقبات
-  // =============================================================================
-
-  function initObservers() {
-    // MutationObserver للتغييرات في DOM
-    const observer = new MutationObserver((mutations) => {
-      let hasNewNodes = false;
-      
-      for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
-          hasNewNodes = true;
-          // تأخير قليل للسماح بإعداد العناصر
-          setTimeout(() => scanTreeForVideos(node), 50);
-        }
-      }
-
-      if (hasNewNodes) {
-        scheduleUiUpdate();
-      }
-    });
-
-    observer.observe(document.documentElement || document.body, {
-      childList: true,
-      subtree: true
-    });
-
-    // أحداث النافذة
-    window.addEventListener('scroll', scheduleUiUpdate, { passive: true });
-    window.addEventListener('resize', scheduleUiUpdate);
-    window.addEventListener('fullscreenchange', scheduleUiUpdate);
-    document.addEventListener('visibilitychange', scheduleUiUpdate);
+// Scan DOM tree for videos
+function scanTreeForVideos(root) {
+  if (!root) return;
+  
+  if (root.nodeType === Node.ELEMENT_NODE && root.tagName === 'VIDEO') {
+    attachFloatingIcon(root);
   }
-
-  /**
-   * التهيئة الرئيسية
-   */
-  function initialize() {
-    console.log('Video Translate AI - Content Script Initialized');
-
-    // تحميل الإعدادات
-    loadSettings();
-
-    // مسح الصفحة الحالية للفيديوهات
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => {
-        setTimeout(() => {
-          scanTreeForVideos(document);
-          initObservers();
-        }, 100);
-      });
-    } else {
-      setTimeout(() => {
-        scanTreeForVideos(document);
-        initObservers();
-      }, 100);
+  
+  if (root.querySelectorAll) {
+    const found = root.querySelectorAll('video');
+    for (const v of found) attachFloatingIcon(v);
+  }
+  
+  if (root.nodeType === Node.ELEMENT_NODE && root.shadowRoot) {
+    scanTreeForVideos(root.shadowRoot);
+  }
+  
+  if (root.nodeType === Node.DOCUMENT_NODE || root.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    let current = walker.currentNode;
+    while (current) {
+      if (current.tagName === 'VIDEO') attachFloatingIcon(current);
+      if (current.shadowRoot) scanTreeForVideos(current.shadowRoot);
+      current = walker.nextNode();
     }
-
-    // تحديث دوري للمواقع
-    setInterval(() => {
-      if (state.videos.size > 0) {
-        scheduleUiUpdate();
-      }
-    }, 1000);
   }
+}
 
-  // بدء التنفيذ
-  initialize();
-})();
+// Get video language hints
+function getVideoLangHints(video) {
+  const hints = {
+    elementLang: null,
+    audioTrackLang: null,
+    captionTrackLangs: []
+  };
+  
+  try {
+    hints.elementLang = video.getAttribute('lang') || video.closest('[lang]')?.getAttribute('lang') || null;
+  } catch (_) {}
+  
+  try {
+    if (video.audioTracks && video.audioTracks.length > 0) {
+      hints.audioTrackLang = video.audioTracks[0].language || null;
+    }
+  } catch (_) {}
+  
+  try {
+    const tracks = video.querySelectorAll('track[kind="subtitles"], track[kind="captions"], track[kind="metadata"]');
+    for (const t of tracks) {
+      const lang = t.getAttribute('srclang');
+      if (lang) hints.captionTrackLangs.push(lang);
+    }
+  } catch (_) {}
+  
+  return hints;
+}
+
+// Get best video for overlay
+function getBestVideoForOverlay() {
+  const visible = [...videos]
+    .filter((v) => v.isConnected)
+    .map((v) => ({ v, rect: v.getBoundingClientRect() }))
+    .filter(({ rect }) => rect.width >= 200 && rect.height >= 120)
+    .filter(({ rect }) => rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth)
+    .sort((a, b) => b.rect.width * b.rect.height - a.rect.width * a.rect.height);
+  
+  return visible[0]?.v || [...videos][0] || null;
+}
+
+// Attach floating icon to video
+function attachFloatingIcon(video) {
+  if (!video || video.dataset.hasTranslateIcon) return;
+  
+  const icon = document.createElement('div');
+  icon.className = 'v-translate-icon';
+  icon.innerHTML = '<span>文</span>';
+  icon.title = 'Toggle Video Translation';
+  
+  icon.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleTranslation(video);
+  });
+  
+  // Add context menu for right-click
+  icon.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showIconContextMenu(icon, video, e.clientX, e.clientY);
+  });
+  
+  document.body.appendChild(icon);
+  
+  iconsByVideo.set(video, icon);
+  videos.add(video);
+  video.dataset.hasTranslateIcon = 'true';
+}
+
+// Show context menu for icon
+function showIconContextMenu(icon, video, x, y) {
+  // Create context menu
+  const menu = document.createElement('div');
+  menu.className = 'v-translate-context-menu';
+  menu.style.position = 'fixed';
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  menu.style.zIndex = '9999999';
+  menu.style.backgroundColor = 'white';
+  menu.style.border = '1px solid #ccc';
+  menu.style.borderRadius = '4px';
+  menu.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
+  menu.style.padding = '5px 0';
+  menu.style.minWidth = '180px';
+  
+  // Add menu items
+  const exportItem = document.createElement('div');
+  exportItem.textContent = 'Export Subtitles';
+  exportItem.style.padding = '8px 15px';
+  exportItem.style.cursor = 'pointer';
+  exportItem.addEventListener('click', () => {
+    exportSubtitles();
+    menu.remove();
+  });
+  
+  const settingsItem = document.createElement('div');
+  settingsItem.textContent = 'Translation Settings';
+  settingsItem.style.padding = '8px 15px';
+  settingsItem.style.cursor = 'pointer';
+  settingsItem.addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+    menu.remove();
+  });
+  
+  const testItem = document.createElement('div');
+  testItem.textContent = 'Test Audio Capture';
+  testItem.style.padding = '8px 15px';
+  testItem.style.cursor = 'pointer';
+  testItem.addEventListener('click', () => {
+    testAudioCapture();
+    menu.remove();
+  });
+  
+  menu.appendChild(exportItem);
+  menu.appendChild(settingsItem);
+  menu.appendChild(testItem);
+  
+  document.body.appendChild(menu);
+  
+  // Remove menu when clicking elsewhere
+  const removeMenu = () => menu.remove();
+  setTimeout(() => {
+    document.addEventListener('click', removeMenu, { once: true });
+  }, 100);
+}
+
+// Export subtitles
+async function exportSubtitles() {
+  if (subtitlesHistory.length === 0) {
+    alert('No subtitles available to export');
+    return;
+  }
+  
+  try {
+    const response = await chrome.runtime.sendMessage({
+      action: 'EXPORT_SUBTITLES',
+      format: 'srt',
+      subtitles: subtitlesHistory.map((s, index) => ({
+        text: s.text,
+        startTime: index * 3,
+        endTime: (index + 1) * 3
+      }))
+    });
+    
+    if (response.url) {
+      const link = document.createElement('a');
+      link.href = response.url;
+      link.download = `subtitles.${response.format}`;
+      link.click();
+      
+      // Clean up
+      setTimeout(() => URL.revokeObjectURL(response.url), 100);
+    }
+  } catch (error) {
+    console.error('Export failed:', error);
+    alert('Failed to export subtitles');
+  }
+}
+
+// Test audio capture
+async function testAudioCapture() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      action: 'TEST_AUDIO_CAPTURE',
+      tabId: chrome.devtools.inspectedWindow.tabId
+    });
+    
+    if (response.success) {
+      showTestResult('Audio capture test successful!');
+    } else {
+      showTestResult(`Test failed: ${response.error}`);
+    }
+  } catch (error) {
+    showTestResult(`Test error: ${error.message}`);
+  }
+}
+
+// Show test result
+function showTestResult(message) {
+  if (!subtitleOverlay) {
+    const video = getBestVideoForOverlay();
+    if (video) createSubtitleOverlay(video);
+  }
+  
+  if (subtitleOverlay && overlayTranslatedEl) {
+    overlayTranslatedEl.textContent = message;
+    overlayTranslatedEl.style.color = message.includes('successful') ? '#4CAF50' : '#f44336';
+    
+    setTimeout(() => {
+      if (overlayTranslatedEl) {
+        overlayTranslatedEl.textContent = '';
+        overlayTranslatedEl.style.color = '';
+      }
+    }, 3000);
+  }
+}
+
+// Toggle translation
+function toggleTranslation(video) {
+  if (!video) return;
+  
+  if (isTranslating && activeVideo === video) {
+    isTranslating = false;
+    activeVideo = null;
+    updateIconsState();
+    removeSubtitleOverlay();
+    chrome.runtime.sendMessage({ action: 'STOP_TRANSLATION' });
+    return;
+  }
+  
+  isTranslating = true;
+  activeVideo = video;
+  updateIconsState();
+  createSubtitleOverlay(video);
+  
+  const hints = getVideoLangHints(video);
+  chrome.runtime.sendMessage({ action: 'START_TRANSLATION', hints });
+}
+
+// Update icons state
+function updateIconsState() {
+  for (const v of videos) {
+    const icon = iconsByVideo.get(v);
+    if (!icon) continue;
+    icon.classList.toggle('active', isTranslating && v === activeVideo);
+  }
+  scheduleUiUpdate();
+}
+
+// Subtitle overlay management
+function createSubtitleOverlay(video) {
+  if (subtitleOverlay) return;
+  
+  subtitleOverlay = document.createElement('div');
+  subtitleOverlay.className = 'v-translate-overlay size-medium pos-bottom';
+  
+  overlayTranslatedEl = document.createElement('div');
+  overlayTranslatedEl.className = 'v-translate-line v-translate-translated';
+  
+  overlayOriginalEl = document.createElement('div');
+  overlayOriginalEl.className = 'v-translate-line v-translate-original';
+  
+  subtitleOverlay.appendChild(overlayTranslatedEl);
+  subtitleOverlay.appendChild(overlayOriginalEl);
+  
+  overlayTranslatedEl.textContent = 'Starting translation...';
+  overlayOriginalEl.textContent = '';
+  
+  document.body.appendChild(subtitleOverlay);
+  applyOverlayStyle();
+  scheduleUiUpdate();
+}
+
+function removeSubtitleOverlay() {
+  if (!subtitleOverlay) return;
+  subtitleOverlay.remove();
+  subtitleOverlay = null;
+  overlayTranslatedEl = null;
+  overlayOriginalEl = null;
+}
+
+// Render subtitle
+function renderSubtitle({ translatedText, originalText, isFinal }) {
+  if (!subtitleOverlay || !overlayTranslatedEl || !overlayOriginalEl) return;
+  
+  subtitleOverlay.classList.toggle('partial', !isFinal);
+  
+  const mode = settingsCache?.subtitleMode || 'translated';
+  
+  if (mode === 'original') {
+    overlayTranslatedEl.textContent = originalText || '';
+    overlayOriginalEl.textContent = '';
+    overlayOriginalEl.style.display = 'none';
+    return;
+  }
+  
+  if (mode === 'both') {
+    overlayTranslatedEl.textContent = translatedText || '';
+    overlayOriginalEl.textContent = originalText || '';
+    overlayOriginalEl.style.display = '';
+    return;
+  }
+  
+  overlayTranslatedEl.textContent = translatedText || '';
+  overlayOriginalEl.textContent = '';
+  overlayOriginalEl.style.display = 'none';
+}
+
+// UI positioning and updates
+let uiUpdateScheduled = false;
+function scheduleUiUpdate() {
+  if (uiUpdateScheduled) return;
+  uiUpdateScheduled = true;
+  requestAnimationFrame(() => {
+    uiUpdateScheduled = false;
+    updateUiPositions();
+  });
+}
+
+function updateUiPositions() {
+  for (const video of [...videos]) {
+    if (!video.isConnected) {
+      const icon = iconsByVideo.get(video);
+      if (icon) icon.remove();
+      videos.delete(video);
+      continue;
+    }
+    
+    const icon = iconsByVideo.get(video);
+    if (!icon) continue;
+    
+    const rect = video.getBoundingClientRect();
+    
+    const visible = 
+      rect.width >= 160 &&
+      rect.height >= 90 &&
+      rect.bottom > 0 &&
+      rect.right > 0 &&
+      rect.top < window.innerHeight &&
+      rect.left < window.innerWidth;
+    
+    if (!visible) {
+      icon.style.display = 'none';
+      continue;
+    }
+    
+    icon.style.display = 'flex';
+    icon.style.top = `${Math.max(8, rect.top + 10)}px`;
+    icon.style.left = `${Math.max(8, rect.left + 10)}px`;
+  }
+  
+  if (subtitleOverlay && (activeVideo?.isConnected || isTranslating)) {
+    const video = activeVideo?.isConnected ? activeVideo : getBestVideoForOverlay();
+    if (!activeVideo && video) activeVideo = video;
+    
+    if (activeVideo) {
+      const rect = activeVideo.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      
+      let y;
+      if (settingsCache?.subtitlePosition === 'top') y = rect.top + rect.height * 0.18;
+      else if (settingsCache?.subtitlePosition === 'middle') y = rect.top + rect.height * 0.65;
+      else y = rect.top + rect.height * 0.88;
+      
+      subtitleOverlay.style.left = `${x}px`;
+      subtitleOverlay.style.top = `${y}px`;
+      subtitleOverlay.style.maxWidth = `${Math.min(rect.width * 0.92, 900)}px`;
+    }
+  }
+}
+
+// Initialize the extension
+initializeExtension();
+
+console.log('Video Translate AI content script initialized');

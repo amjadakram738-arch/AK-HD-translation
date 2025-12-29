@@ -1,105 +1,467 @@
 /**
  * service_worker.js - Background Service Worker
- * 
- * المسؤوليات الرئيسية:
- * 1. إدارة جلسات الترجمة والالتقاط
- * 2. إنشاء وإدارة Offscreen Document لمعالجة الصوت
- * 3. التنسيق بين Content Scripts و Workers
- * 4. إدارة الإعدادات والخصوصية
- * 5. التعامل مع DRM وتنبيهات المحتوى المحمي
+ * Responsibilities: Session management, offscreen document creation for audio processing,
+ * communication with proxy, and passing results to content scripts.
+ * Also handles all extension commands, context menus, and advanced features.
  */
 
 const PROXY_WS_URL = 'wss://api.yourproxy.com/v1/stt-streaming';
 
-// إعدادات افتراضية
-const DEFAULT_CONFIG = {
-  targetLang: 'ar',
-  sourceLang: 'auto',
-  engine: 'google',
-  subtitleMode: 'translated',
-  subtitleSize: 'medium',
-  subtitlePosition: 'bottom',
-  vadEnabled: true,
-  chunkSize: 8000,
-  overlapSize: 500,
-  privacyMode: 'balanced',
-  autoDeleteTranscripts: true,
-  telemetryEnabled: false
-};
-
-// إدارة الجلسات
-const sessions = new Map();
-const activeStreams = new Map();
-
-// حالة المعالجة
+// State management
+const sessions = new Map(); // tabId -> { startedAt: number, frameId?: number, config: object }
 let offscreenReady = false;
 let offscreenReadyWaiters = [];
-let isProcessing = false;
 let activeTabId = null;
+let isProcessing = false;
 
-// =============================================================================
-// دوال مساعدة للأحداث والانتظار
-// =============================================================================
+// Supported languages (ISO 639-1 codes)
+const SUPPORTED_LANGUAGES = [
+  'ar', 'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja',
+  'ko', 'hi', 'tr', 'fa', 'el', 'he', 'th', 'vi', 'id', 'ms',
+  'pl', 'sv', 'no', 'da', 'fi', 'cs', 'hu', 'ro', 'bg', 'hr',
+  'sr', 'uk', 'nl', 'nl', 'af', 'sq', 'am', 'hy', 'az', 'eu',
+  'be', 'bn', 'bs', 'ca', 'ceb', 'co', 'cy', 'eo', 'et', 'gl',
+  'gu', 'ha', 'haw', 'hmn', 'ht', 'ig', 'is', 'jw', 'ka', 'kk',
+  'km', 'kn', 'ku', 'ky', 'la', 'lb', 'lo', 'lt', 'lv', 'mg',
+  'mi', 'mk', 'ml', 'mn', 'mr', 'mt', 'my', 'ne', 'ny', 'pa',
+  'ps', 'sm', 'sd', 'si', 'sk', 'sl', 'sn', 'so', 'st', 'su',
+  'sw', 'ta', 'te', 'tg', 'tl', 'tn', 'to', 'tt', 'ug', 'uk',
+  'ur', 'uz', 'xh', 'yi', 'yo', 'zu'
+];
 
+// Operating modes
+const OPERATING_MODES = {
+  'auto': { name: 'Auto Mode', description: 'Automatically selects best settings' },
+  'manual': { name: 'Manual Mode', description: 'Full user control' },
+  'economy': { name: 'Economy Mode', description: 'Reduces CPU/memory usage' },
+  'high-accuracy': { name: 'High Accuracy Mode', description: 'Best translation quality' },
+  'silent': { name: 'Silent Mode', description: 'No audio output' },
+  'interactive': { name: 'Interactive Mode', description: 'Allows text editing' },
+  'normal': { name: 'Normal Mode', description: 'Balanced performance' },
+  'fast': { name: 'Fast Mode', description: 'Lower quality, faster results' },
+  'beta': { name: 'Beta Mode', description: 'Test new features' },
+  'cloud': { name: 'Cloud Mode', description: 'Offload processing to servers' },
+  'shared': { name: 'Shared Mode', description: 'Synchronized subtitles for groups' }
+};
+
+// Audio capture methods
+const AUDIO_CAPTURE_METHODS = {
+  'direct': { name: 'Direct Capture', priority: 1 },
+  'microphone': { name: 'Microphone Capture', priority: 2 },
+  'hybrid': { name: 'Hybrid Capture', priority: 3 },
+  'api': { name: 'API Capture', priority: 4 },
+  'upload': { name: 'Manual Upload', priority: 5 }
+};
+
+// Translation engines
+const TRANSLATION_ENGINES = {
+  'google': { name: 'Google Translate', type: 'cloud', requiresInternet: true },
+  'deepl': { name: 'DeepL', type: 'cloud', requiresInternet: true },
+  'whisper': { name: 'OpenAI Whisper', type: 'cloud', requiresInternet: true },
+  'libre': { name: 'LibreTranslate', type: 'cloud', requiresInternet: true },
+  'local-whisper': { name: 'Local Whisper.cpp', type: 'local', requiresInternet: false }
+};
+
+// Audio servers
+const AUDIO_SERVERS = {
+  'webAudio': { name: 'Web Audio API', type: 'browser' },
+  'ffmpeg': { name: 'FFmpeg.wasm', type: 'wasm' },
+  'mediaRecorder': { name: 'MediaRecorder', type: 'browser' },
+  'audioWorklet': { name: 'AudioWorklet', type: 'browser' }
+};
+
+// Initialize extension
+function initializeExtension() {
+  setupContextMenus();
+  setupCommands();
+  setupTabListeners();
+  setupMessageListeners();
+  
+  console.log('Video Translate AI extension initialized');
+}
+
+// Setup context menus
+function setupContextMenus() {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'translate-video',
+      title: 'Translate Video',
+      contexts: ['video', 'audio']
+    });
+    
+    chrome.contextMenus.create({
+      id: 'translate-page',
+      title: 'Translate Page Audio',
+      contexts: ['page']
+    });
+    
+    chrome.contextMenus.create({
+      id: 'options',
+      title: 'Video Translate AI Options',
+      contexts: ['browser_action']
+    });
+  });
+}
+
+// Setup commands
+function setupCommands() {
+  chrome.commands.onCommand.addListener((command) => {
+    if (command === 'toggle-translation') {
+      toggleTranslationForActiveTab();
+    } else if (command === 'show-options') {
+      chrome.runtime.openOptionsPage();
+    }
+  });
+}
+
+// Setup tab listeners
+function setupTabListeners() {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    if (sessions.has(tabId)) {
+      handleStopTranslation(tabId);
+    }
+  });
+  
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (!sessions.has(tabId)) return;
+    if (changeInfo.status === 'loading') {
+      handleStopTranslation(tabId);
+    }
+  });
+}
+
+// Setup message listeners
+function setupMessageListeners() {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message?.action) return;
+    
+    handleMessage(message, sender, sendResponse);
+    return true; // Keep message port open for async responses
+  });
+}
+
+// Main message handler
+async function handleMessage(message, sender, sendResponse) {
+  try {
+    switch (message.action) {
+      case 'OFFSCREEN_READY':
+        markOffscreenReady();
+        break;
+      
+      case 'OFFSCREEN_SUBTITLE':
+        handleOffscreenSubtitle(message);
+        break;
+      
+      case 'OFFSCREEN_ERROR':
+        handleOffscreenError(message);
+        break;
+      
+      case 'GET_TRANSLATION_STATUS':
+        await handleGetTranslationStatus(message, sendResponse);
+        break;
+      
+      case 'UPDATE_SETTINGS':
+        handleUpdateSettings(message);
+        break;
+      
+      case 'UPDATE_ADVANCED_SETTINGS':
+        handleUpdateAdvancedSettings(message);
+        break;
+      
+      case 'AUDIO_DATA':
+        handleAudioData(message);
+        break;
+      
+      case 'START_TRANSLATION':
+        await handleStartTranslation(message, sender);
+        sendResponse({ ok: true });
+        break;
+      
+      case 'STOP_TRANSLATION':
+        await handleStopTranslation(message.tabId ?? sender?.tab?.id);
+        sendResponse({ ok: true });
+        break;
+      
+      case 'TOGGLE_TRANSLATION':
+        await handleToggleTranslation(message, sender);
+        sendResponse({ ok: true });
+        break;
+      
+      case 'GET_SUPPORTED_LANGUAGES':
+        sendResponse({ languages: SUPPORTED_LANGUAGES });
+        break;
+      
+      case 'GET_OPERATING_MODES':
+        sendResponse({ modes: OPERATING_MODES });
+        break;
+      
+      case 'GET_AUDIO_CAPTURE_METHODS':
+        sendResponse({ methods: AUDIO_CAPTURE_METHODS });
+        break;
+      
+      case 'GET_TRANSLATION_ENGINES':
+        sendResponse({ engines: TRANSLATION_ENGINES });
+        break;
+      
+      case 'GET_AUDIO_SERVERS':
+        sendResponse({ servers: AUDIO_SERVERS });
+        break;
+      
+      case 'DETECT_DRM':
+        await handleDetectDRM(message, sendResponse);
+        break;
+      
+      case 'EXPORT_SUBTITLES':
+        await handleExportSubtitles(message, sendResponse);
+        break;
+      
+      case 'TEST_AUDIO_CAPTURE':
+        await handleTestAudioCapture(message, sendResponse);
+        break;
+      
+      case 'GET_EXTENSION_STATE':
+        sendResponse(getExtensionState());
+        break;
+      
+      default:
+        console.warn('Unknown message action:', message.action);
+    }
+  } catch (error) {
+    console.error('Error handling message:', error);
+    sendResponse({ error: error.message });
+  }
+}
+
+// Offscreen document management
 function markOffscreenReady() {
   offscreenReady = true;
-  for (const resolve of offscreenReadyWaiters) resolve();
+  offscreenReadyWaiters.forEach(resolve => resolve());
   offscreenReadyWaiters = [];
 }
 
-function waitForOffscreenReady(timeoutMs = 5000) {
+function waitForOffscreenReady(timeoutMs = 2000) {
   if (offscreenReady) return Promise.resolve();
   return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve(), timeoutMs);
-    offscreenReadyWaiters.push(() => {
-      clearTimeout(timeout);
-      resolve();
-    });
+    offscreenReadyWaiters.push(resolve);
+    setTimeout(resolve, timeoutMs);
   });
 }
 
 function setProcessingState() {
   isProcessing = sessions.size > 0;
   activeTabId = isProcessing ? [...sessions.keys()][sessions.size - 1] : null;
+}
+
+async function hasOffscreenDocument() {
+  if (!chrome.offscreen?.hasDocument) return false;
+  try {
+    return await chrome.offscreen.hasDocument();
+  } catch (_) {
+    return false;
+  }
+}
+
+async function ensureOffscreenDocument() {
+  if (!chrome.offscreen?.createDocument) return;
   
-  // تحديث أيقونة الإضافة
-  chrome.action.setBadgeText({
-    text: isProcessing ? 'ON' : '',
-    tabId: activeTabId
+  const exists = await hasOffscreenDocument();
+  if (!exists) {
+    offscreenReady = false;
+    await chrome.offscreen.createDocument({
+      url: chrome.runtime.getURL('offscreen/offscreen.html'),
+      reasons: ['AUDIO_PLAYBACK', 'USER_MEDIA'],
+      justification: 'Process tab audio for real-time speech-to-text streaming and translation'
+    });
+  }
+  
+  chrome.runtime.sendMessage({ action: 'OFFSCREEN_PING' });
+  await waitForOffscreenReady();
+}
+
+async function closeOffscreenDocumentIfIdle() {
+  if (!chrome.offscreen?.closeDocument) return;
+  if (sessions.size > 0) return;
+  
+  try {
+    const exists = await hasOffscreenDocument();
+    if (exists) {
+      await chrome.offscreen.closeDocument();
+      offscreenReady = false;
+    }
+  } catch (_) {
+    // ignore
+  }
+}
+
+// Session management
+function sendToTabFrame(tabId, frameId, payload) {
+  const options = typeof frameId === 'number' ? { frameId } : undefined;
+  chrome.tabs.sendMessage(tabId, payload, options)
+    .catch(() => {
+      // ignore
+    });
+}
+
+function notifyTabStatus(tabId, translating, frameId) {
+  sendToTabFrame(tabId, frameId, {
+    action: 'TRANSLATION_STATUS_CHANGED',
+    isTranslating: translating
+  });
+}
+
+async function buildConfigForTab(tabId, hints) {
+  const settings = await getAllSettings();
+  const pageLang = await detectTabLanguage(tabId);
+  
+  return {
+    targetLang: settings.targetLang || 'ar',
+    sourceLang: settings.sourceLang || 'auto',
+    engine: settings.engine || 'google',
+    subtitleMode: settings.subtitleMode || 'translated',
+    subtitleSize: settings.subtitleSize || 'medium',
+    subtitlePosition: settings.subtitlePosition || 'bottom',
+    pageLang,
+    hints: hints || null,
+    proxyWsUrl: PROXY_WS_URL,
+    operatingMode: settings.operatingMode || 'normal',
+    audioCaptureMethod: settings.audioCaptureMethod || 'direct',
+    performanceMode: settings.performanceMode || 'balance',
+    enableGPU: settings.enableGPU || false,
+    maxMemory: settings.maxMemory || 200
+  };
+}
+
+// Translation control
+async function handleStartTranslation(message, sender) {
+  const tabId = message.tabId ?? sender?.tab?.id;
+  const frameId = message.frameId ?? sender?.frameId;
+  
+  if (!tabId) return;
+  
+  // Check for DRM
+  const hasDRM = await detectDRMInTab(tabId);
+  if (hasDRM) {
+    sendToTabFrame(tabId, frameId, {
+      action: 'DRM_DETECTED',
+      warning: 'DRM protected content detected. Some features may be limited.'
+    });
+  }
+  
+  await ensureOffscreenDocument();
+  
+  const streamId = await getTabCaptureStreamId(tabId);
+  if (!streamId) {
+    notifyTabStatus(tabId, false, frameId);
+    sendToTabFrame(tabId, frameId, {
+      action: 'TRANSLATION_ERROR',
+      error: 'Failed to capture audio (tabCapture)'
+    });
+    return;
+  }
+  
+  const settings = await buildConfigForTab(tabId, message.hints);
+  
+  sessions.set(tabId, { startedAt: Date.now(), frameId, config: settings });
+  setProcessingState();
+  
+  chrome.runtime.sendMessage({
+    action: 'OFFSCREEN_START',
+    tabId,
+    streamId,
+    settings
   });
   
-  chrome.action.setBadgeBackgroundColor({
-    color: '#4CAF50',
-    tabId: activeTabId
+  notifyTabStatus(tabId, true, frameId);
+}
+
+async function handleStopTranslation(tabId) {
+  const resolvedTabId = tabId ?? activeTabId;
+  if (!resolvedTabId) return;
+  
+  const session = sessions.get(resolvedTabId);
+  const frameId = session?.frameId;
+  
+  sessions.delete(resolvedTabId);
+  setProcessingState();
+  
+  chrome.runtime.sendMessage({
+    action: 'OFFSCREEN_STOP',
+    tabId: resolvedTabId
+  });
+  
+  notifyTabStatus(resolvedTabId, false, frameId);
+  await closeOffscreenDocumentIfIdle();
+}
+
+async function handleToggleTranslation(message, sender) {
+  const tabId = message.tabId ?? sender?.tab?.id;
+  if (!tabId) return;
+  
+  if (sessions.has(tabId)) {
+    await handleStopTranslation(tabId);
+  } else {
+    await handleStartTranslation(message, sender);
+  }
+}
+
+// Message handlers
+function handleOffscreenSubtitle(message) {
+  const session = sessions.get(message.tabId);
+  const frameId = session?.frameId;
+  
+  sendToTabFrame(message.tabId, frameId, {
+    action: 'NEW_SUBTITLE',
+    text: message.translatedText,
+    isFinal: message.isFinal,
+    originalText: message.originalText,
+    detectedLang: message.detectedLang
   });
 }
 
-// =============================================================================
-// دوال إدارة التخزين
-// =============================================================================
+function handleOffscreenError(message) {
+  const session = sessions.get(message.tabId);
+  const frameId = session?.frameId;
+  
+  sendToTabFrame(message.tabId, frameId, {
+    action: 'TRANSLATION_ERROR',
+    error: message.error || 'Unknown error'
+  });
+}
 
-async function storageGet(keys) {
+async function handleGetTranslationStatus(message, sendResponse) {
+  const tabId = message.tabId ?? sender?.tab?.id;
+  const translating = tabId ? sessions.has(tabId) : isProcessing;
+  sendResponse({ isTranslating: translating, activeTabId });
+}
+
+function handleUpdateSettings(message) {
+  const settings = message.settings || {};
+  chrome.runtime.sendMessage({
+    action: 'OFFSCREEN_UPDATE_CONFIG',
+    settings
+  });
+}
+
+function handleUpdateAdvancedSettings(message) {
+  // Update advanced settings in storage
+  chrome.storage.sync.set(message.settings || {});
+}
+
+function handleAudioData(message) {
+  // Forward audio data to proxy
+  sendToProxy(message.data);
+}
+
+// Utility functions
+async function getAllSettings() {
   return new Promise((resolve) => {
-    chrome.storage.sync.get(keys, (result) => resolve(result || {}));
+    chrome.storage.sync.get(null, (result) => {
+      resolve(result || {});
+    });
   });
 }
 
-async function storageSet(data) {
-  return new Promise((resolve) => {
-    chrome.storage.sync.set(data, () => resolve());
-  });
-}
-
-async function getSettings() {
-  const stored = await storageGet(Object.keys(DEFAULT_CONFIG));
-  return { ...DEFAULT_CONFIG, ...stored };
-}
-
-// =============================================================================
-// دوال إدارة التبويبات
-// =============================================================================
-
-async function tabsDetectLanguage(tabId) {
+async function detectTabLanguage(tabId) {
   return new Promise((resolve) => {
     if (!chrome.tabs?.detectLanguage) return resolve(null);
     chrome.tabs.detectLanguage(tabId, (lang) => {
@@ -109,7 +471,7 @@ async function tabsDetectLanguage(tabId) {
   });
 }
 
-async function tabCaptureGetMediaStreamId(tabId) {
+async function getTabCaptureStreamId(tabId) {
   return new Promise((resolve) => {
     if (!chrome.tabCapture?.getMediaStreamId) return resolve(null);
     chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (streamId) => {
@@ -119,518 +481,218 @@ async function tabCaptureGetMediaStreamId(tabId) {
   });
 }
 
-async function getActiveTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab;
-}
-
-// =============================================================================
-// دوال Offscreen Document
-// =============================================================================
-
-async function hasOffscreenDocument() {
-  if (!chrome.offscreen?.hasDocument) return false;
+async function detectDRMInTab(tabId) {
   try {
-    return await chrome.offscreen.hasDocument();
-  } catch {
-    return false;
-  }
-}
-
-async function ensureOffscreenDocument() {
-  if (!chrome.offscreen?.createDocument) {
-    console.warn('Offscreen Documents غير مدعوم في هذا المتصفح');
-    return false;
-  }
-
-  const exists = await hasOffscreenDocument();
-  if (!exists) {
-    offscreenReady = false;
-    try {
-      await chrome.offscreen.createDocument({
-        url: chrome.runtime.getURL('src/offscreen/offscreen.html'),
-        reasons: ['AUDIO_PLAYBACK'],
-        justification: 'Process tab audio for real-time speech-to-text streaming'
-      });
-    } catch (error) {
-      console.error('فشل في إنشاء Offscreen Document:', error);
-      return false;
-    }
-  }
-
-  // انتظار جاهزية Offscreen
-  try {
-    await chrome.runtime.sendMessage({ action: 'OFFSCREEN_PING' });
-    await waitForOffscreenReady();
-  } catch {
-    // تجاهل الأخطاء
-  }
-  
-  return true;
-}
-
-async function closeOffscreenDocumentIfIdle() {
-  if (!chrome.offscreen?.closeDocument) return;
-  if (sessions.size > 0) return;
-
-  try {
-    const exists = await hasOffscreenDocument();
-    if (exists) {
-      await chrome.offscreen.closeDocument();
-      offscreenReady = false;
-    }
-  } catch {
-    // تجاهل الأخطاء
-  }
-}
-
-// =============================================================================
-// دوال إرسال الرسائل
-// =============================================================================
-
-function sendToTabFrame(tabId, frameId, payload) {
-  const options = typeof frameId === 'number' ? { frameId } : undefined;
-  chrome.tabs
-    .sendMessage(tabId, payload, options)
-    .catch(() => {
-      // تجاهل أخطاء الإرسال
+    const result = await chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      func: detectDRM,
+      args: []
     });
-}
-
-function notifyTabStatus(tabId, translating, frameId) {
-  sendToTabFrame(tabId, frameId, {
-    action: 'TRANSLATION_STATUS_CHANGED',
-    isTranslating: translating,
-    tabId
-  });
-}
-
-async function buildConfigForTab(tabId, hints = null) {
-  const settings = await getSettings();
-  const pageLang = await tabsDetectLanguage(tabId);
-
-  return {
-    targetLang: settings.targetLang || 'ar',
-    sourceLang: settings.sourceLang || 'auto',
-    engine: settings.engine || 'google',
-    subtitleMode: settings.subtitleMode || 'translated',
-    subtitleSize: settings.subtitleSize || 'medium',
-    subtitlePosition: settings.subtitlePosition || 'bottom',
-    vadEnabled: settings.vadEnabled,
-    chunkSize: settings.chunkSize,
-    overlapSize: settings.overlapSize,
-    privacyMode: settings.privacyMode,
-    pageLang,
-    hints: hints || null,
-    proxyWsUrl: PROXY_WS_URL,
-    isDRMProtected: false // سيتم تحديده لاحقاً
-  };
-}
-
-// =============================================================================
-// التحقق من DRM والمحتوى المحمي
-// =============================================================================
-
-async function checkDRMProtection(tabId) {
-  // التحقق مما إذا كان المحتوى محمياً بـ DRM
-  // ملاحظة: لا نحاول أبداً تجاوز DRM - هذا للسلامة القانونية فقط
-  try {
-    const tab = await chrome.tabs.get(tabId);
-    const url = new URL(tab.url);
-    
-    // قائمة بالمواقع المعروفة بتطبيق DRM
-    const drmDomains = [
-      'netflix.com',
-      'hbo.com',
-      'hulu.com',
-      'disneyplus.com',
-      'amazon.com/video',
-      'spotify.com',
-      'apple.com/tv',
-      'vimeo.com',
-      'primevideo.com'
-    ];
-    
-    return drmDomains.some(domain => url.hostname.includes(domain));
-  } catch {
-    return false;
-  }
-}
-
-// =============================================================================
-// إدارة الجلسات
-// =============================================================================
-
-async function handleStartTranslation(tabId, hints, frameId) {
-  if (!tabId) {
-    console.error('معرف التبويب غير صالح');
-    return { success: false, error: 'معرف التبويب غير صالح' };
-  }
-
-  // التحقق من DRM
-  const isDRMProtected = await checkDRMProtection(tabId);
-  if (isDRMProtected) {
-    notifyTabStatus(tabId, false, frameId);
-    sendToTabFrame(tabId, frameId, {
-      action: 'TRANSLATION_ERROR',
-      error: 'VIDEO_DRM_PROTECTED',
-      message: 'هذا الفيديو محمي بتقنية DRM ولا يمكن التقاط صوته. يرجى استخدام مصادر غير محمية أو طلب الوصول الرسمي.',
-      canRetry: false
-    });
-    return { success: false, error: 'DRM_PROTECTED' };
-  }
-
-  // إنشاء Offscreen Document
-  const offscreenReady = await ensureOffscreenDocument();
-  if (!offscreenReady) {
-    notifyTabStatus(tabId, false, frameId);
-    sendToTabFrame(tabId, frameId, {
-      action: 'TRANSLATION_ERROR',
-      error: 'OFFSCREEN_CREATION_FAILED',
-      message: 'فشل في إنشاء بيئة معالجة الصوت. يرجى إعادة تحميل الصفحة.',
-      canRetry: true
-    });
-    return { success: false, error: 'OFFSCREEN_FAILED' };
-  }
-
-  // الحصول على stream ID
-  const streamId = await tabCaptureGetMediaStreamId(tabId);
-  if (!streamId) {
-    notifyTabStatus(tabId, false, frameId);
-    sendToTabFrame(tabId, frameId, {
-      action: 'TRANSLATION_ERROR',
-      error: 'CAPTURE_FAILED',
-      message: 'فشل في التقاط صوت الفيديو. تأكد من منح الإذن للوصول إلى صوت التبويب.',
-      canRetry: true,
-      userActionRequired: true
-    });
-    return { success: false, error: 'CAPTURE_FAILED' };
-  }
-
-  // بناء الإعدادات
-  const settings = await buildConfigForTab(tabId, hints);
-
-  // إنشاء الجلسة
-  const session = {
-    tabId,
-    frameId,
-    startedAt: Date.now(),
-    settings,
-    status: 'capturing'
-  };
-  
-  sessions.set(tabId, session);
-  setProcessingState();
-
-  // بدء المعالجة في Offscreen
-  try {
-    chrome.runtime.sendMessage({
-      action: 'OFFSCREEN_START',
-      tabId,
-      streamId,
-      settings
-    });
+    return result?.[0]?.result || false;
   } catch (error) {
-    console.error('خطأ في إرسال رسالة البدء:', error);
+    console.warn('DRM detection failed:', error);
+    return false;
   }
-
-  notifyTabStatus(tabId, true, frameId);
-  
-  // إرسال حالة البدء إلى التبويب
-  sendToTabFrame(tabId, frameId, {
-    action: 'TRANSLATION_STARTED',
-    sessionId: tabId,
-    settings
-  });
-
-  return { success: true, sessionId: tabId };
 }
 
-async function handleStopTranslation(tabId) {
-  const resolvedTabId = tabId || activeTabId;
-  if (!resolvedTabId) return { success: false, error: 'NO_ACTIVE_SESSION' };
+function detectDRM() {
+  const videos = document.getElementsByTagName('video');
+  for (const video of videos) {
+    if (detectDRMInVideo(video)) {
+      return true;
+    }
+  }
+  return false;
+}
 
-  const session = sessions.get(resolvedTabId);
-  const frameId = session?.frameId;
-
-  sessions.delete(resolvedTabId);
-  setProcessingState();
-
-  // إيقاف المعالجة في Offscreen
+function detectDRMInVideo(video) {
   try {
-    chrome.runtime.sendMessage({
-      action: 'OFFSCREEN_STOP',
-      tabId: resolvedTabId
-    });
-  } catch {
-    // تجاهل الأخطاء
-  }
-
-  notifyTabStatus(resolvedTabId, false, frameId);
-  
-  sendToTabFrame(resolvedTabId, frameId, {
-    action: 'TRANSLATION_STOPPED',
-    sessionId: resolvedTabId
-  });
-
-  await closeOffscreenDocumentIfIdle();
-  
-  return { success: true };
-}
-
-// =============================================================================
-// تصدير واستيراد الترجمات
-// =============================================================================
-
-async function handleExportSession(tabId, format = 'srt') {
-  const session = sessions.get(tabId);
-  if (!session) {
-    return { success: false, error: 'SESSION_NOT_FOUND' };
-  }
-
-  // إرسال طلب التصدير إلى Offscreen
-  try {
-    const response = await chrome.runtime.sendMessage({
-      action: 'OFFSCREEN_EXPORT',
-      tabId,
-      format
-    });
-    return response;
-  } catch {
-    return { success: false, error: 'EXPORT_FAILED' };
+    // Check for common DRM attributes
+    if (video.hasAttribute('data-drm') || video.hasAttribute('drm-protected')) {
+      return true;
+    }
+    
+    // Check if video has encrypted media extensions
+    if (video.webkitKeys || video.msKeys) {
+      return true;
+    }
+    
+    // Check video sources for DRM
+    const sources = video.querySelectorAll('source');
+    for (const source of sources) {
+      const src = source.getAttribute('src') || '';
+      if (src.includes('.m3u8') || src.includes('.mpd') || 
+          src.includes('widevine') || src.includes('playready')) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (error) {
+    return false;
   }
 }
 
-// =============================================================================
-// لوحة الأوامر (Commands)
-// =============================================================================
-
-chrome.commands.onCommand.addListener(async (command) => {
-  const tab = await getActiveTab();
-  if (!tab?.id) return;
-
-  switch (command) {
-    case 'toggle-translation':
-      chrome.runtime.sendMessage({ action: 'TOGGLE_TRANSLATION', tabId: tab.id });
-      break;
-    case 'toggle-subtitles':
-      chrome.runtime.sendMessage({ action: 'TOGGLE_SUBTITLES', tabId: tab.id });
-      break;
-    case 'change-language':
-      chrome.runtime.sendMessage({ action: 'CYCLE_LANGUAGE', tabId: tab.id });
-      break;
-  }
-});
-
-// =============================================================================
-// قائمة السياق (Context Menu)
-// =============================================================================
-
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: 'translate-video',
-    title: 'ترجمة هذا الفيديو',
-    contexts: ['video']
-  });
-
-  chrome.contextMenus.create({
-    id: 'export-subtitles',
-    title: 'تصدير الترجمات',
-    contexts: ['video']
-  });
-
-  chrome.contextMenus.create({
-    id: 'extension-options',
-    title: 'إعدادات الإضافة',
-    contexts: ['action']
-  });
-});
-
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (!tab?.id) return;
-
-  switch (info.menuItemId) {
-    case 'translate-video':
-      chrome.runtime.sendMessage({ action: 'START_TRANSLATION', tabId: tab.id });
-      break;
-    case 'export-subtitles':
-      chrome.runtime.sendMessage({ action: 'EXPORT_SUBTITLES', tabId: tab.id });
-      break;
-    case 'extension-options':
-      chrome.runtime.openOptionsPage();
-      break;
-  }
-});
-
-// =============================================================================
-// الاستماع للرسائل
-// =============================================================================
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message?.action) return;
-
-  // معالجة رسائل_OFFSCREEN
-  if (message.action === 'OFFSCREEN_READY') {
-    markOffscreenReady();
+async function handleDetectDRM(message, sendResponse) {
+  const tabId = message.tabId;
+  if (!tabId) {
+    sendResponse({ error: 'No tabId provided' });
     return;
   }
+  
+  const hasDRM = await detectDRMInTab(tabId);
+  sendResponse({ hasDRM });
+}
 
-  if (message.action === 'OFFSCREEN_SUBTITLE') {
-    const session = sessions.get(message.tabId);
-    const frameId = session?.frameId;
-
-    sendToTabFrame(message.tabId, frameId, {
-      action: 'NEW_SUBTITLE',
-      text: message.translatedText,
-      isFinal: message.isFinal,
-      originalText: message.originalText,
-      detectedLang: message.detectedLang,
-      confidence: message.confidence,
-      timestamp: message.timestamp
-    });
+async function handleExportSubtitles(message, sendResponse) {
+  const { format, subtitles } = message;
+  
+  if (!subtitles || !Array.isArray(subtitles)) {
+    sendResponse({ error: 'Invalid subtitles data' });
     return;
   }
+  
+  let content = '';
+  
+  if (format === 'srt') {
+    content = generateSRT(subtitles);
+  } else if (format === 'vtt') {
+    content = generateVTT(subtitles);
+  } else if (format === 'txt') {
+    content = generateTXT(subtitles);
+  } else {
+    sendResponse({ error: 'Unsupported format' });
+    return;
+  }
+  
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  
+  sendResponse({ url, format });
+}
 
-  if (message.action === 'OFFSCREEN_ERROR') {
-    const session = sessions.get(message.tabId);
-    const frameId = session?.frameId;
+function generateSRT(subtitles) {
+  let content = '';
+  subtitles.forEach((subtitle, index) => {
+    const startTime = formatTime(subtitle.startTime || 0);
+    const endTime = formatTime(subtitle.endTime || subtitle.startTime + 3);
+    content += `${index + 1}\n${startTime} --> ${endTime}\n${subtitle.text}\n\n`;
+  });
+  return content;
+}
 
-    sendToTabFrame(message.tabId, frameId, {
+function generateVTT(subtitles) {
+  let content = 'WEBVTT\n\n';
+  subtitles.forEach((subtitle, index) => {
+    const startTime = formatTime(subtitle.startTime || 0);
+    const endTime = formatTime(subtitle.endTime || subtitle.startTime + 3);
+    content += `${index + 1}\n${startTime} --> ${endTime}\n${subtitle.text}\n\n`;
+  });
+  return content;
+}
+
+function generateTXT(subtitles) {
+  return subtitles.map(s => s.text).join('\n\n');
+}
+
+function formatTime(seconds) {
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  const millis = Math.floor((seconds % 1) * 1000);
+  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`;
+}
+
+async function handleTestAudioCapture(message, sendResponse) {
+  const tabId = message.tabId;
+  if (!tabId) {
+    sendResponse({ error: 'No tabId provided' });
+    return;
+  }
+  
+  try {
+    const streamId = await getTabCaptureStreamId(tabId);
+    if (!streamId) {
+      sendResponse({ success: false, error: 'Failed to get audio stream' });
+      return;
+    }
+    
+    sendResponse({ success: true, streamId });
+  } catch (error) {
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+function getExtensionState() {
+  return {
+    isTranslating: isProcessing,
+    activeTabId,
+    sessionCount: sessions.size,
+    offscreenReady
+  };
+}
+
+function toggleTranslationForActiveTab() {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (tabs[0]) {
+      const tabId = tabs[0].id;
+      if (sessions.has(tabId)) {
+        handleStopTranslation(tabId);
+      } else {
+        chrome.tabs.sendMessage(tabId, { action: 'TOGGLE_TRANSLATION' });
+      }
+    }
+  });
+}
+
+// Legacy fallback functions for compatibility
+function setupStreamingProxy(tabId) {
+  const url = PROXY_WS_URL;
+  
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.close();
+  }
+  
+  socket = new WebSocket(url);
+  
+  socket.onopen = () => {
+    chrome.storage.sync.get(['targetLang', 'engine'], (settings) => {
+      const config = {
+        action: 'CONFIGURE',
+        targetLang: settings.targetLang || 'ar',
+        engine: settings.engine || 'google'
+      };
+      socket.send(JSON.stringify(config));
+    });
+  };
+  
+  socket.onmessage = (event) => {
+    try {
+      const result = JSON.parse(event.data);
+      chrome.tabs.sendMessage(tabId, {
+        action: 'NEW_SUBTITLE',
+        text: result.translatedText,
+        isFinal: result.isFinal,
+        originalText: result.originalText
+      }).catch(() => {});
+    } catch (_) {}
+  };
+  
+  socket.onerror = () => {
+    chrome.tabs.sendMessage(tabId, {
       action: 'TRANSLATION_ERROR',
-      error: message.error,
-      message: message.message,
-      canRetry: message.canRetry || false,
-      userActionRequired: message.userActionRequired || false
+      error: 'Failed to connect to translation server'
     });
-    return;
-  }
+  };
+}
 
-  if (message.action === 'OFFSCREEN_SESSION_ENDED') {
-    const session = sessions.get(message.tabId);
-    const frameId = session?.frameId;
-
-    sessions.delete(message.tabId);
-    setProcessingState();
-
-    sendToTabFrame(message.tabId, frameId, {
-      action: 'TRANSLATION_ENDED',
-      reason: message.reason
-    });
-
-    closeOffscreenDocumentIfIdle();
-    return;
-  }
-
-  // استعلامات الحالة
-  if (message.action === 'GET_TRANSLATION_STATUS') {
-    const tabId = message.tabId ?? sender?.tab?.id;
-    const session = tabId ? sessions.get(tabId) : null;
-    sendResponse({
-      isTranslating: !!session,
-      activeTabId,
-      sessionData: session ? {
-        startedAt: session.startedAt,
-        status: session.status
-      } : null
-    });
-    return true;
-  }
-
-  // طلب الحصول على الإعدادات
-  if (message.action === 'GET_SETTINGS') {
-    getSettings().then(settings => {
-      sendResponse({ settings });
-    });
-    return true;
-  }
-
-  // تحديث الإعدادات
-  if (message.action === 'UPDATE_SETTINGS') {
-    storageSet(message.settings).then(() => {
-      // إرسال التحديث إلى جميع المكونات النشطة
-      chrome.runtime.sendMessage({
-        action: 'SETTINGS_UPDATED',
-        settings: message.settings
-      });
-      sendResponse({ success: true });
-    });
-    return true;
-  }
-
-  // طلبات البدء/الإيقاف
-  if (message.action === 'START_TRANSLATION') {
-    const tabId = message.tabId ?? sender?.tab?.id;
-    const frameId = message.frameId ?? sender?.frameId;
-    
-    handleStartTranslation(tabId, message.hints, frameId).then(result => {
-      sendResponse(result);
-    });
-    return true;
-  }
-
-  if (message.action === 'STOP_TRANSLATION') {
-    const tabId = message.tabId ?? sender?.tab?.id;
-    
-    handleStopTranslation(tabId).then(result => {
-      sendResponse(result);
-    });
-    return true;
-  }
-
-  // طلب التصدير
-  if (message.action === 'EXPORT_SESSION') {
-    const tabId = message.tabId ?? sender?.tab?.id;
-    
-    handleExportSession(tabId, message.format).then(result => {
-      sendResponse(result);
-    });
-    return true;
-  }
-});
-
-// =============================================================================
-// أحداث التبويبات
-// =============================================================================
-
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (sessions.has(tabId)) {
-    handleStopTranslation(tabId);
-  }
-});
-
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (!sessions.has(tabId)) return;
-  if (changeInfo.status === 'loading') {
-    handleStopTranslation(tabId);
-  }
-});
-
-chrome.tabs.onActivated.addListener((activeInfo) => {
-  // تحديث حالة الأيقونة عند تنشيط تبويب مختلف
-  if (sessions.has(activeInfo.tabId)) {
-    chrome.action.setBadgeText({
-      text: 'ON',
-      tabId: activeInfo.tabId
-    });
-  }
-});
-
-// =============================================================================
-// تهيئة الخدمة
-// =============================================================================
-
-async function initialize() {
-  console.log('Video Translate AI - Service Worker Started');
-  
-  // تحميل الإعدادات
-  const settings = await getSettings();
-  console.log('الإعدادات المحملة:', settings);
-  
-  // التحقق من دعم Offscreen
-  if (!chrome.offscreen) {
-    console.warn('Offscreen Documents غير مدعوم - سيتم استخدام fallback');
+async function sendToProxy(audioChunk) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(audioChunk);
   }
 }
 
-// بدء التهيئة
-initialize();
+// Initialize the extension when service worker starts
+initializeExtension();
+
+console.log('Video Translate AI Service Worker loaded');

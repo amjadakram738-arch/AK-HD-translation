@@ -1,324 +1,160 @@
-/**
- * overlay_styles.css - أنماط واجهة الترجمات
- * 
- * تصميم متجاوب وأنيق للترجمات مع دعم RTL ولغات متعددة
- */
-
-/* =============================================================================
-   المتغيرات (CSS Variables)
-   ============================================================================= */
-
-:root {
-  --overlay-bg: rgba(0, 0, 0, 0.85);
-  --overlay-bg-light: rgba(255, 255, 255, 0.95);
-  --overlay-text: #ffffff;
-  --overlay-text-dark: #1a1a1a;
-  --overlay-accent: #4CAF50;
-  --overlay-accent-hover: #45a049;
-  --overlay-error: #f44336;
-  --overlay-warning: #ff9800;
-  --overlay-border-radius: 8px;
-  --overlay-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-  --overlay-font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-  --overlay-transition: all 0.3s ease;
-}
-
-/* =============================================================================
-   الأيقونة العائمة
-   ============================================================================= */
-
+/* Floating icon styles */
 .v-translate-icon {
-  position: fixed;
-  z-index: 999999;
-  width: 36px;
-  height: 36px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(102, 126, 234, 0.4);
-  transition: var(--overlay-transition);
-  font-size: 18px;
-  color: white;
-  user-select: none;
+    position: fixed;
+    z-index: 999999;
+    width: 40px;
+    height: 40px;
+    background-color: rgba(26, 115, 232, 0.85);
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    transition: transform 0.2s, background-color 0.2s;
+    pointer-events: auto;
+    user-select: none;
+    font-size: 18px;
+    color: white;
 }
 
 .v-translate-icon:hover {
-  transform: scale(1.1);
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.6);
-}
-
-.v-translate-icon:focus {
-  outline: 2px solid #fff;
-  outline-offset: 2px;
+    transform: scale(1.1);
+    background-color: rgba(26, 115, 232, 1);
 }
 
 .v-translate-icon.active {
-  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-  box-shadow: 0 2px 10px rgba(76, 175, 80, 0.4);
-  animation: pulse 2s infinite;
-}
-
-.v-translate-icon.inactive {
-  opacity: 0.7;
+    background-color: #f44336;
+    animation: pulse 1.5s infinite;
 }
 
 @keyframes pulse {
-  0%, 100% {
-    box-shadow: 0 2px 10px rgba(76, 175, 80, 0.4);
-  }
-  50% {
-    box-shadow: 0 2px 20px rgba(76, 175, 80, 0.8);
-  }
+    0% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(244, 67, 54, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0); }
 }
 
-/* =============================================================================
-   حاوية الترجمات الرئيسية
-   ============================================================================= */
-
+/* Subtitle overlay styles */
 .v-translate-overlay {
-  position: fixed;
-  z-index: 999998;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--overlay-bg);
-  color: var(--overlay-text);
-  padding: 12px 20px;
-  border-radius: var(--overlay-border-radius);
-  box-shadow: var(--overlay-shadow);
-  font-family: var(--overlay-font-family);
-  text-align: center;
-  max-width: 90vw;
-  min-width: 200px;
-  transition: var(--overlay-transition);
-  pointer-events: none;
-}
-
-.v-translate-overlay.hidden {
-  opacity: 0;
-  transform: translateX(-50%) translateY(10px);
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    max-width: min(900px, 92vw);
+    width: fit-content;
+    text-align: center;
+    background-color: rgba(0, 0, 0, 0.72);
+    color: white;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    z-index: 999998;
+    pointer-events: none;
+    line-height: 1.5;
+    backdrop-filter: blur(2px);
+    transition: all 0.3s ease;
 }
 
 .v-translate-overlay.partial {
-  opacity: 0.9;
-}
-
-.v-translate-overlay.final {
-  opacity: 1;
-}
-
-.v-translate-overlay.updated {
-  animation: highlight 0.3s ease;
-}
-
-@keyframes highlight {
-  0%, 100% {
-    background: var(--overlay-bg);
-  }
-  50% {
-    background: rgba(76, 175, 80, 0.3);
-  }
-}
-
-/* =============================================================================
-   أحجام الخط
-   ============================================================================= */
-
-.v-translate-overlay.size-small {
-  padding: 8px 14px;
-}
-
-.v-translate-overlay.size-small .v-translate-line {
-  font-size: 14px;
-  line-height: 1.4;
-}
-
-.v-translate-overlay.size-medium {
-  padding: 12px 20px;
-}
-
-.v-translate-overlay.size-medium .v-translate-line {
-  font-size: 18px;
-  line-height: 1.5;
-}
-
-.v-translate-overlay.size-large {
-  padding: 16px 26px;
-}
-
-.v-translate-overlay.size-large .v-translate-line {
-  font-size: 24px;
-  line-height: 1.6;
-}
-
-/* =============================================================================
-   مواضع العرض
-   ============================================================================= */
-
-.v-translate-overlay.pos-top {
-  top: calc(18% + 50px);
-}
-
-.v-translate-overlay.pos-middle {
-  top: 65%;
-}
-
-.v-translate-overlay.pos-bottom {
-  bottom: 12%;
-}
-
-/* =============================================================================
-   أنماط النص
-   ============================================================================= */
-
-.v-translate-container {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+    opacity: 0.85;
 }
 
 .v-translate-line {
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  white-space: pre-wrap;
-}
-
-.v-translate-translated {
-  font-weight: 500;
+    white-space: pre-wrap;
+    margin: 4px 0;
 }
 
 .v-translate-original {
-  font-size: 0.85em;
-  opacity: 0.7;
-  font-style: italic;
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
-  padding-top: 8px;
-  margin-top: 4px;
+    font-size: 0.9em;
+    opacity: 0.85;
+    font-style: italic;
 }
 
-/* RTL Support */
-[dir="rtl"] .v-translate-overlay {
-  direction: rtl;
-  text-align: center;
+/* Size variants */
+.v-translate-overlay.size-small {
+    font-size: 14px;
+    padding: 8px 12px;
 }
 
-[dir="rtl"] .v-translate-original {
-  border-top: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-  padding-top: 0;
-  padding-bottom: 8px;
-  margin-top: 0;
-  margin-bottom: 4px;
-}
-
-/* =============================================================================
-   أوضاع العرض
-   ============================================================================= */
-
-.v-translate-overlay.mode-translated .v-translate-original {
-  display: none !important;
-}
-
-.v-translate-overlay.mode-original .v-translate-translated {
-  display: none !important;
-}
-
-/* =============================================================================
-   رسائل الخطأ
-   ============================================================================= */
-
-.v-translate-overlay .error {
-  color: #ff6b6b;
-  font-weight: 500;
-}
-
-.v-translate-overlay .warning {
-  color: #ffd93d;
-}
-
-/* =============================================================================
-   تأثير التحميل
-   ============================================================================= */
-
-.v-translate-overlay.loading::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 20px;
-  height: 20px;
-  margin: -10px 0 0 -10px;
-  border: 2px solid transparent;
-  border-top-color: var(--overlay-accent);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* =============================================================================
-   تصميم داكن (للفيديوهات الفاتحة)
-   ============================================================================= */
-
-.v-translate-overlay.light-theme {
-  background: var(--overlay-bg-light);
-  color: var(--overlay-text-dark);
-}
-
-.v-translate-overlay.light-theme .v-translate-original {
-  border-top-color: rgba(0, 0, 0, 0.1);
-}
-
-[dir="rtl"] .v-translate-overlay.light-theme .v-translate-original {
-  border-bottom-color: rgba(0, 0, 0, 0.1);
-}
-
-/* =============================================================================
-   استجابة للشاشات الصغيرة
-   ============================================================================= */
-
-@media (max-width: 480px) {
-  .v-translate-overlay {
-    padding: 10px 14px;
-    max-width: 95vw;
-  }
-  
-  .v-translate-overlay.size-large .v-translate-line {
+.v-translate-overlay.size-medium {
     font-size: 18px;
-  }
-  
-  .v-translate-icon {
-    width: 32px;
-    height: 32px;
-    font-size: 16px;
-  }
+    padding: 10px 16px;
 }
 
-/* =============================================================================
-   دعم الطباعة
-   ============================================================================= */
-
-@media print {
-  .v-translate-icon,
-  .v-translate-overlay {
-    display: none !important;
-  }
+.v-translate-overlay.size-large {
+    font-size: 22px;
+    padding: 12px 20px;
 }
 
-/* =============================================================================
-   وضع الطاقة المنخفضة
-   ============================================================================= */
+/* Position variants */
+.v-translate-overlay.pos-top {
+    top: 20%;
+}
 
-@media (prefers-reduced-motion: reduce) {
-  .v-translate-icon,
-  .v-translate-overlay {
-    transition: none;
-    animation: none !important;
-  }
+.v-translate-overlay.pos-middle {
+    top: 50%;
+}
+
+.v-translate-overlay.pos-bottom {
+    top: 80%;
+}
+
+/* RTL support */
+.v-translate-overlay[dir="rtl"] {
+    text-align: right;
+}
+
+/* Context menu styles */
+.v-translate-context-menu {
+    position: fixed;
+    z-index: 9999999;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    padding: 5px 0;
+    min-width: 180px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 0.9rem;
+}
+
+.v-translate-context-menu div {
+    padding: 8px 15px;
+    cursor: pointer;
+}
+
+.v-translate-context-menu div:hover {
+    background-color: #f5f5f5;
+}
+
+/* Dark theme support */
+@media (prefers-color-scheme: dark) {
+    .v-translate-overlay {
+        background-color: rgba(30, 30, 30, 0.85);
+        color: #f5f5f5;
+    }
+    
+    .v-translate-context-menu {
+        background-color: #3d3d3d;
+        border-color: #555;
+        color: #f5f5f5;
+    }
+    
+    .v-translate-context-menu div:hover {
+        background-color: #4d4d4d;
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .v-translate-overlay {
+        max-width: 95vw;
+        font-size: 16px !important;
+    }
+    
+    .v-translate-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+    }
 }
