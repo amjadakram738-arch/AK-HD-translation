@@ -14,20 +14,20 @@ class AudioProcessor extends AudioWorkletProcessor {
     process(inputs, outputs, parameters) {
         const input = inputs[0];
         if (!input || input.length === 0) return true;
-        
+
         const inputChannel = input[0];
-        
+
         // جمع العينات في المخزن المؤقت
         for (let i = 0; i < inputChannel.length; i++) {
-            this.buffer[this.bufferIndex++] = inputChannel[i];
-            
-            // عندما يمتلئ المخزن المؤقت، إرسال البيانات
-            if (this.bufferIndex >= this.bufferSize) {
-                this.sendAudioChunk();
-                this.bufferIndex = 0;
-            }
+          this.buffer[this.bufferIndex++] = inputChannel[i];
+
+          // عندما يمتلئ المخزن المؤقت، إرسال البيانات
+          if (this.bufferIndex >= this.bufferSize) {
+            this.sendAudioChunk();
+            this.bufferIndex = 0;
+          }
         }
-        
+
         return true; // استمر في المعالجة
     }
 
@@ -35,14 +35,14 @@ class AudioProcessor extends AudioWorkletProcessor {
         // تحويل Float32 إلى Int16
         const int16Buffer = new Int16Array(this.buffer.length);
         for (let i = 0; i < this.buffer.length; i++) {
-            const s = Math.max(-1, Math.min(1, this.buffer[i]));
-            int16Buffer[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          const s = Math.max(-1, Math.min(1, this.buffer[i]));
+          int16Buffer[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
-        
+
         // إرسال البيانات عبر المنفذ
         this.port.postMessage({
-            type: 'audioChunk',
-            chunk: int16Buffer.buffer
+          type: 'audioChunk',
+          chunk: int16Buffer.buffer
         });
     }
 }
