@@ -249,13 +249,13 @@ function importSettings() {
     input.accept = '.json';
     
     input.addEventListener('change', (event) => {
-        const file = (event.target as HTMLInputElement).files?.[0];
+        const file = event.target.files?.[0];
         if (!file) return;
         
         const reader = new FileReader();
         reader.onload = (e) => {
             try {
-                const settings = JSON.parse(e.target?.result as string);
+                const settings = JSON.parse(e.target?.result);
                 
                 // Validate and import settings
                 chrome.storage.sync.set(settings, () => {
