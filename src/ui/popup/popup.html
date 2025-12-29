@@ -1,0 +1,301 @@
+/**
+ * popup.html - واجهة الإعدادات المنبثقة
+ * 
+ * واجهة مستخدم بسيطة وسريعة لتغيير الإعدادات الأساسية
+ */
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Translate AI</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #333;
+      min-width: 320px;
+      padding: 16px;
+    }
+
+    .container {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 2px solid #f0f0f0;
+    }
+
+    .logo {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: white;
+    }
+
+    .title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    .subtitle {
+      font-size: 12px;
+      color: #666;
+      margin-top: 2px;
+    }
+
+    .status-card {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ccc;
+    }
+
+    .status-indicator.active {
+      background: #4CAF50;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .status-text {
+      font-size: 13px;
+      color: #555;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #444;
+      margin-bottom: 6px;
+    }
+
+    .form-group select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+      background: white;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .form-group select:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .toggle-group {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .toggle-label {
+      font-size: 13px;
+      color: #444;
+    }
+
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      background: #ccc;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle.active {
+      background: #4CAF50;
+    }
+
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .toggle.active::after {
+      transform: translateX(20px);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-top: 8px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-secondary {
+      background: #f0f0f0;
+      color: #444;
+    }
+
+    .btn-secondary:hover {
+      background: #e0e0e0;
+    }
+
+    .divider {
+      height: 1px;
+      background: #e0e0e0;
+      margin: 16px 0;
+    }
+
+    .quick-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #f0f0f0;
+    }
+
+    .footer a {
+      font-size: 12px;
+      color: #667eea;
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">文</div>
+      <div>
+        <div class="title">Video Translate AI</div>
+        <div class="subtitle">ترجمة فورية بالفيديو</div>
+      </div>
+    </div>
+
+    <div class="status-card">
+      <div class="status-indicator" id="statusIndicator"></div>
+      <span class="status-text" id="statusText">غير نشط</span>
+    </div>
+
+    <div class="form-group">
+      <label for="targetLang">لغة الترجمة</label>
+      <select id="targetLang">
+        <option value="ar">العربية</option>
+        <option value="en">الإنجليزية</option>
+        <option value="fr">الفرنسية</option>
+        <option value="es">الإسبانية</option>
+        <option value="de">الألمانية</option>
+        <option value="it">الإيطالية</option>
+        <option value="pt">البرتغالية</option>
+        <option value="ru">الروسية</option>
+        <option value="zh">الصينية</option>
+        <option value="ja">اليابانية</option>
+        <option value="ko">الكورية</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="engine">محرك الترجمة</label>
+      <select id="engine">
+        <option value="google">Google Translate</option>
+        <option value="mock">محاكاة (للاختبار)</option>
+      </select>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="toggle-group">
+      <span class="toggle-label">عرض النص الأصلي</span>
+      <div class="toggle" id="showOriginalToggle"></div>
+    </div>
+
+    <div class="toggle-group">
+      <span class="toggle-label">كشف النشاط الصوتي (VAD)</span>
+      <div class="toggle active" id="vadToggle"></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="quick-actions">
+      <button class="btn btn-secondary" id="toggleBtn">بدء/إيقاف</button>
+      <button class="btn btn-primary" id="optionsBtn">المزيد من الإعدادات</button>
+    </div>
+
+    <div class="footer">
+      <a href="#" id="helpLink">مساعدة؟</a>
+      <span style="color: #ccc; margin: 0 8px;">|</span>
+      <a href="#" id="privacyLink">الخصوصية</a>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "name": "video-translate-ai",
+  "version": "1.0.0",
+  "description": "Chrome extension for real-time video translation using AI",
+  "main": "src/background/service_worker.js",
+  "scripts": {
+    "dev": "echo 'Development mode - load src/ folder directly in Chrome'",
+    "build": "node scripts/build.js",
+    "pack": "node scripts/pack.js",
+    "test": "node scripts/test.js",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist/ build/ coverage/"
+  },
+  "keywords": [
+    "chrome-extension",
+    "translation",
+    "speech-to-text",
+    "stt",
+    "video",
+    "subtitles",
+    "accessibility"
+  ],
+  "author": "Video Translate AI Team",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/amjadakram738-arch/AK-HD-translation/issues"
+  },
+  "homepage": "https://github.com/amjadakram738-arch/AK-HD-translation#readme",
+  "devDependencies": {
+    "archiver": "^6.0.1",
+    "eslint": "^8.56.0",
+    "fs-extra": "^11.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
