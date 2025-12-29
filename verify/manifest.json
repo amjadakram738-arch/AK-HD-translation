@@ -1,0 +1,87 @@
+{
+  "manifest_version": 3,
+  "name": "Video Translate AI",
+  "version": "1.0.0",
+  "description": "ترجمة فورية للفيديوهات باستخدام الذكاء الاصطناعي - يكتشف الفيديوهات تلقائياً ويحول الكلام إلى نص ويترجمه ويعرض الترجمات بشكل متزامن",
+  "default_locale": "en",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "storage",
+    "tabCapture",
+    "scripting",
+    "offscreen",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/background/service_worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/content_script.js"],
+      "css": ["src/overlay/overlay_styles.css"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "src/ui/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/overlay/overlay_styles.css",
+        "src/overlay/overlay_renderer.js",
+        "icons/*",
+        "src/workers/*"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://*.googleapis.com https://*.openai.com https://*.deepL.com wss://*; worker-src 'self' blob:;",
+    "content_scripts": "script-src 'self' 'unsafe-inline'; object-src 'self';"
+  },
+  "side_panel": {
+    "default_path": "src/ui/popup/popup.html"
+  },
+  "commands": {
+    "toggle-translation": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+T",
+        "mac": "Command+Shift+T"
+      },
+      "description": "بدء/إيقاف الترجمة الفورية"
+    },
+    "toggle-subtitles": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "إظهار/إخفاء الترجمات"
+    },
+    "change-language": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+L",
+        "mac": "Command+Shift+L"
+      },
+      "description": "تغيير لغة الترجمة"
+    }
+  }
+}
