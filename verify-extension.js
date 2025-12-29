@@ -15,6 +15,8 @@ const requiredFiles = [
     'popup.js',
     'styles.css',
     'audio-processor.js',
+    'offscreen.html',
+    'offscreen.js',
     'icons/icon16.png',
     'icons/icon48.png',
     'icons/icon128.png'
@@ -67,7 +69,7 @@ const requiredPermissions = [
     'storage',
     'tabCapture',
     'scripting',
-    'background'
+    'offscreen'
 ];
 
 // قائمة الموارد القابلة للوصول من الويب
@@ -166,7 +168,9 @@ function verifyBackgroundJS() {
         // التحقق من الرسائل
         let allMessagesPresent = true;
         requiredMessages.forEach(message => {
-            if (backgroundContent.includes(`"${message}"`)) {
+            const dq = `"${message}"`;
+            const sq = `'${message}'`;
+            if (backgroundContent.includes(dq) || backgroundContent.includes(sq)) {
                 console.log(`   ✓ رسالة: ${message}`);
             } else {
                 console.log(`   ✗ رسالة مفقودة: ${message}`);
@@ -217,7 +221,9 @@ function verifyContentScriptJS() {
         const contentScriptMessages = ['START_TRANSLATION', 'STOP_TRANSLATION', 'NEW_SUBTITLE', 'TRANSLATION_ERROR'];
         let allMessagesPresent = true;
         contentScriptMessages.forEach(message => {
-            if (contentScriptContent.includes(`"${message}"`)) {
+            const dq = `"${message}"`;
+            const sq = `'${message}'`;
+            if (contentScriptContent.includes(dq) || contentScriptContent.includes(sq)) {
                 console.log(`   ✓ رسالة: ${message}`);
             } else {
                 console.log(`   ✗ رسالة مفقودة: ${message}`);

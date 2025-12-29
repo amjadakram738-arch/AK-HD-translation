@@ -11,18 +11,18 @@
         <header>
             <h1>Video Translate AI</h1>
         </header>
-        
+
         <section class="settings">
             <div class="field">
-                <label for="target-lang">لغة الترجمة:</label>
-                <select id="target-lang">
-                    <option value="ar">العربية</option>
-                    <option value="en">الإنجليزية</option>
-                    <option value="fr">الفرنسية</option>
-                    <option value="es">الإسبانية</option>
-                </select>
+                <label for="source-lang">لغة الفيديو (المصدر):</label>
+                <select id="source-lang"></select>
             </div>
-            
+
+            <div class="field">
+                <label for="target-lang">لغة الترجمة (الهدف):</label>
+                <select id="target-lang"></select>
+            </div>
+
             <div class="field">
                 <label for="engine">محرك الترجمة:</label>
                 <select id="engine">
@@ -32,10 +32,37 @@
                 </select>
             </div>
 
+            <div class="field">
+                <label for="subtitle-mode">عرض الترجمة:</label>
+                <select id="subtitle-mode">
+                    <option value="translated">المترجم فقط</option>
+                    <option value="both">المترجم + الأصلي</option>
+                    <option value="original">الأصلي فقط</option>
+                </select>
+            </div>
+
+            <div class="field">
+                <label for="subtitle-size">حجم الترجمة:</label>
+                <select id="subtitle-size">
+                    <option value="small">صغير</option>
+                    <option value="medium">متوسط</option>
+                    <option value="large">كبير</option>
+                </select>
+            </div>
+
+            <div class="field">
+                <label for="subtitle-position">مكان الترجمة:</label>
+                <select id="subtitle-position">
+                    <option value="bottom">أسفل</option>
+                    <option value="middle">وسط</option>
+                    <option value="top">أعلى</option>
+                </select>
+            </div>
+
             <div class="status-panel">
                 <p>الحالة: <span id="status" class="status-off">متوقف</span></p>
             </div>
-            
+
             <div class="controls">
                 <button id="toggle-translation" class="toggle-btn">بدء الترجمة</button>
             </div>
@@ -45,6 +72,7 @@
             <button id="save-settings">حفظ الإعدادات</button>
         </footer>
     </div>
+
     <script src="popup.js"></script>
 </body>
 </html>
