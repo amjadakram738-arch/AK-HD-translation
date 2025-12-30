@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Translate AI - Advanced Options</title>
+    <link rel="stylesheet" href="../../overlay/overlay_styles.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .options-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        
+        header {
+            text-align: center;
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            color: #1a73e8;
+            font-size: 1.5rem;
+            margin: 0;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            background-color: #f1f1f1;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .tab.active {
+            background-color: #1a73e8;
+            color: white;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .section {
+            margin-bottom: 25px;
+            padding: 15px;
+            background-color: #fafafa;
+            border-radius: 6px;
+        }
+        
+        .section h2 {
+            color: #1a73e8;
+            font-size: 1.1rem;
+            margin-top: 0;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        .field {
+            margin-bottom: 15px;
+        }
+        
+        .field label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        .field select, .field input[type="text"], .field input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        
+        .checkbox-field {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .checkbox-field input[type="checkbox"] {
+            width: auto;
+        }
+        
+        .buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        
+        .save-btn {
+            background-color: #1a73e8;
+            color: white;
+        }
+        
+        .reset-btn {
+            background-color: #f1f1f1;
+            color: #333;
+        }
+        
+        .export-btn {
+            background-color: #4CAF50;
+            color: white;
+        }
+        
+        .import-btn {
+            background-color: #2196F3;
+            color: white;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 15px 0;
+            border-top: 1px solid #eee;
+            margin-top: 20px;
+            font-size: 0.8rem;
+            color: #666;
+        }
+        
+        @media (max-width: 768px) {
+            .options-container {
+                padding: 10px;
+            }
+            
+            .tabs {
+                gap: 5px;
+            }
+            
+            .tab {
+                padding: 8px 12px;
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="options-container">
+        <header>
+            <h1>Video Translate AI - Advanced Options</h1>
+        </header>
+        
+        <div class="tabs">
+            <button class="tab active" data-tab="general">General</button>
+            <button class="tab" data-tab="modes">Operating Modes</button>
+            <button class="tab" data-tab="audio">Audio Capture</button>
+            <button class="tab" data-tab="performance">Performance</button>
+            <button class="tab" data-tab="privacy">Privacy</button>
+            <button class="tab" data-tab="ui">UI/UX</button>
+            <button class="tab" data-tab="advanced">Advanced</button>
+        </div>
+        
+        <div id="general" class="tab-content active">
+            <div class="section">
+                <h2>General Settings</h2>
+                <div class="field">
+                    <label for="default-language">Default Language:</label>
+                    <select id="default-language">
+                        <option value="auto">Auto Detect</option>
+                        <option value="en">English</option>
+                        <option value="ar">Arabic</option>
+                        <option value="es">Spanish</option>
+                        <option value="fr">French</option>
+                    </select>
+                </div>
+                
+                <div class="field">
+                    <label for="theme">Theme:</label>
+                    <select id="theme">
+                        <option value="system">System Default</option>
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                    </select>
+                </div>
+                
+                <div class="checkbox-field">
+                    <input type="checkbox" id="show-notifications">
+                    <label for="show-notifications">Show notifications</label>
+                </div>
+            </div>
+        </div>
+        
+        <div id="modes" class="tab-content">
+            <div class="section">
+                <h2>Operating Modes</h2>
+                <div class="field">
+                    <label for="operating-mode">Default Mode:</label>
+                    <select id="operating-mode">
+                        <option value="normal">Normal</option>
+                        <option value="auto">Auto</option>
+                        <option value="manual">Manual</option>
+                        <option value="economy">Economy</option>
+                        <option value="high-accuracy">High Accuracy</option>
+                    </select>
+                </div>
+                
+                <div class="checkbox-field">
+                    <input type="checkbox" id="enable-auto-mode">
+                    <label for="enable-auto-mode">Enable Auto Mode Switching</label>
+                </div>
+                
+                <div class="field">
+                    <label for="min-speed-threshold">Minimum Speed Threshold (Mbps):</label>
+                    <input type="number" id="min-speed-threshold" min="1" max="50" value="5">
+                </div>
+            </div>
+        </div>
+        
+        <div id="audio" class="tab-content">
+            <div class="section">
+                <h2>Audio Capture Settings</h2>
+                <div class="field">
+                    <label for="audio-capture-method">Default Capture Method:</label>
+                    <select id="audio-capture-method">
+                        <option value="direct">Direct Capture</option>
+                        <option value="microphone">Microphone</option>
+                        <option value="hybrid">Hybrid</option>
+                        <option value="api">API</option>
+                    </select>
+                </div>
+                
+                <div class="checkbox-field">
+                    <input type="checkbox" id="enable-noise-reduction">
+                    <label for="enable-noise-reduction">Enable Noise Reduction</label>
+                </div>
+                
+                <div class="field">
+                    <label for="noise-filter-level">Noise Filter Level:</label>
+                    <select id="noise-filter-level">
+                        <option value="light">Light</option>
+                        <option value="medium">Medium</option>
+                        <option value="strong">Strong</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        
+        <div id="performance" class="tab-content">
+            <div class="section">
+                <h2>Performance Settings</h2>
+                <div class="field">
+                    <label for="performance-mode">Performance Mode:</label>
+                    <select id="performance-mode">
+                        <option value="balance">Balanced</option>
+                        <option value="speed">Speed</option>
+                        <option value="quality">Quality</option>
+                    </select>
+                </div>
+                
+                <div class="checkbox-field">
+                    <input type="checkbox" id="enable-gpu">
+                    <label for="enable-gpu">Enable GPU Acceleration</label>
+                </div>
+                
+                <div class="field">
+                    <label for="max-memory">Maximum Memory Usage (MB):</label>
+                    <input type="number" id="max-memory" min="50" max="1000" value="200">
+                </div>
+            </div>
+        </div>
+        
+        <div id="privacy" class="tab-content">
+            <div class="section">
+                <h2>Privacy Settings</h2>
+                <div class="checkbox-field">
+                    <input type="checkbox" id="local-only-mode">
+                    <label for="local-only-mode">Local Processing Only</label>
+                </div>
+                
+                <div class="checkbox-field">
+                    <input type="checkbox" id="auto-delete">
+                    <label for="auto-delete">Auto-delete Recordings</label>
+                </div>
+                
+                <div class="checkbox-field">
+                    <input type="checkbox" id="anonymous-mode">
+                    <label for="anonymous-mode">Anonymous Mode</label>
+                </div>
+            </div>
+        </div>
+        
+        <div id="ui" class="tab-content">
+            <div class="section">
+                <h2>UI Customization</h2>
+                <div class="field">
+                    <label for="font-size">Font Size:</label>
+                    <select id="font-size">
+                        <option value="small">Small</option>
+                        <option value="medium">Medium</option>
+                        <option value="large">Large</option>
+                    </select>
+                </div>
+                
+                <div class="field">
+                    <label for="font-type">Font Type:</label>
+                    <select id="font-type">
+                        <option value="sans">Sans Serif</option>
+                        <option value="serif">Serif</option>
+                        <option value="monospace">Monospace</option>
+                    </select>
+                </div>
+                
+                <div class="field">
+                    <label for="text-color">Text Color:</label>
+                    <input type="text" id="text-color" value="#FFFFFF">
+                </div>
+            </div>
+        </div>
+        
+        <div id="advanced" class="tab-content">
+            <div class="section">
+                <h2>Advanced Settings</h2>
+                <div class="checkbox-field">
+                    <input type="checkbox" id="enable-offline">
+                    <label for="enable-offline">Enable Offline Mode</label>
+                </div>
+                
+                <div class="checkbox-field">
+                    <input type="checkbox" id="enable-drm-warnings">
+                    <label for="enable-drm-warnings">Show DRM Warnings</label>
+                </div>
+                
+                <div class="checkbox-field">
+                    <input type="checkbox" id="enable-debug">
+                    <label for="enable-debug">Enable Debug Logging</label>
+                </div>
+            </div>
+        </div>
+        
+        <div class="buttons">
+            <button class="save-btn" id="save-options">Save Options</button>
+            <button class="reset-btn" id="reset-options">Reset to Defaults</button>
+            <button class="export-btn" id="export-options">Export Settings</button>
+            <button class="import-btn" id="import-options">Import Settings</button>
+        </div>
+        
+        <footer>
+            <p>Video Translate AI - Advanced Options | Version 1.1.0</p>
+        </footer>
+    </div>
+    
+    <script src="options.js"></script>
+</body>
+</html>

@@ -1,323 +1,110 @@
-/**
- * storage.ts - إدارة التخزين
- * 
- * المسؤوليات:
- * 1. إدارة الإعدادات في chrome.storage
- * 2. إدارة جلسات الترجمة
- * 3. تخزين واسترجاع البيانات المحلية
- */
+// Storage management for Video Translate AI extension
 
-const STORAGE_KEYS = {
-  // الإعدادات
-  SETTINGS: 'video_translate_settings',
-  
-  // الجلسات
-  SESSIONS: 'video_translate_sessions',
-  
-  // التاريخ
-  HISTORY: 'video_translate_history',
-  
-  // مفاتيح API
-  API_KEYS: 'video_translate_api_keys',
-  
-  // الخصوصية
-  PRIVACY: 'video_translate_privacy',
-  
-  // حالة الإضافة
-  STATE: 'video_translate_state'
-};
-
-// =============================================================================
-// الإعدادات
-// =============================================================================
-
-export interface ExtensionSettings {
-  targetLang: string;
-  sourceLang: string;
-  engine: string;
-  subtitleMode: 'translated' | 'original' | 'both';
-  subtitleSize: 'small' | 'medium' | 'large';
-  subtitlePosition: 'top' | 'middle' | 'bottom';
-  vadEnabled: boolean;
-  chunkSize: number;
-  overlapSize: number;
-  privacyMode: 'local' | 'balanced' | 'cloud';
-  autoDeleteTranscripts: boolean;
-  telemetryEnabled: boolean;
-}
-
-const DEFAULT_SETTINGS: ExtensionSettings = {
+export const DEFAULT_SETTINGS = {
   targetLang: 'ar',
   sourceLang: 'auto',
   engine: 'google',
   subtitleMode: 'translated',
   subtitleSize: 'medium',
   subtitlePosition: 'bottom',
-  vadEnabled: true,
-  chunkSize: 8000,
-  overlapSize: 500,
-  privacyMode: 'balanced',
-  autoDeleteTranscripts: true,
-  telemetryEnabled: false
+  performanceMode: 'balance',
+  operatingMode: 'normal',
+  audioCaptureMethod: 'direct',
+  translationEngine: 'google',
+  audioServer: 'webAudio',
+  offlineMode: false,
+  drmWarningShown: false,
+  theme: 'system',
+  language: 'auto'
 };
 
-export async function getSettings(): Promise<ExtensionSettings> {
+export async function getStorage<T extends keyof chrome.storage.StorageArea>(area: T, keys: string | string[] | object): Promise<any> {
   return new Promise((resolve) => {
-    chrome.storage.sync.get(STORAGE_KEYS.SETTINGS, (result) => {
-      const settings = result[STORAGE_KEYS.SETTINGS];
-      resolve({ ...DEFAULT_SETTINGS, ...settings });
+    chrome.storage[area].get(keys, (result) => {
+      resolve(result || {});
     });
   });
 }
 
-export async function saveSettings(settings: Partial<ExtensionSettings>): Promise<void> {
+export async function setStorage<T extends keyof chrome.storage.StorageArea>(area: T, items: object): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.sync.get(STORAGE_KEYS.SETTINGS, (result) => {
-      const current = result[STORAGE_KEYS.SETTINGS] || {};
-      const updated = { ...current, ...settings };
-      
-      chrome.storage.sync.set({
-        [STORAGE_KEYS.SETTINGS]: updated
-      }, () => resolve());
+    chrome.storage[area].set(items, () => {
+      resolve();
     });
   });
 }
 
-// =============================================================================
-// الخصوصية
-// =============================================================================
-
-export interface PrivacySettings {
-  mode: 'local' | 'balanced' | 'cloud';
-  autoDeleteTranscripts: boolean;
-  telemetryEnabled: boolean;
-  consentGiven: boolean;
-  lastConsentDate?: number;
-  perSiteConsent?: Record<string, boolean>;
-}
-
-export async function getPrivacySettings(): Promise<PrivacySettings> {
+export async function removeStorage<T extends keyof chrome.storage.StorageArea>(area: T, keys: string | string[]): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.sync.get(STORAGE_KEYS.PRIVACY, (result) => {
-      const privacy = result[STORAGE_KEYS.PRIVACY] || {};
-      resolve({
-        mode: privacy.mode || 'balanced',
-        autoDeleteTranscripts: privacy.autoDeleteTranscripts ?? true,
-        telemetryEnabled: privacy.telemetryEnabled ?? false,
-        consentGiven: privacy.consentGiven ?? false,
-        lastConsentDate: privacy.lastConsentDate
-      };
+    chrome.storage[area].remove(keys, () => {
+      resolve();
     });
   });
 }
 
-export async function savePrivacySettings(settings: Partial<PrivacySettings>): Promise<void> {
+export async function clearStorage<T extends keyof chrome.storage.StorageArea>(area: T): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.sync.get(STORAGE_KEYS.PRIVACY, (result) => {
-      const current = result[STORAGE_KEYS.PRIVACY] || {};
-      const updated = { ...current, ...settings };
-      
-      chrome.storage.sync.set({
-        [STORAGE_KEYS.PRIVACY]: updated
-      }, () => resolve());
+    chrome.storage[area].clear(() => {
+      resolve();
     });
   });
 }
 
-// =============================================================================
-// مفاتيح API
-// =============================================================================
-
-export interface APIKeys {
-  google?: string;
-  deepL?: string;
-  openai?: string;
-  azure?: string;
-  custom?: Record<string, string>;
+export async function getAllSettings(): Promise<any> {
+  const syncData = await getStorage('sync', null);
+  const localData = await getStorage('local', null);
+  return { ...DEFAULT_SETTINGS, ...syncData, ...localData };
 }
 
-export async function getAPIKeys(): Promise<APIKeys> {
-  return new Promise((resolve) => {
-    chrome.storage.sync.get(STORAGE_KEYS.API_KEYS, (result) => {
-      resolve(result[STORAGE_KEYS.API_KEYS] || {});
-    });
-  });
-}
-
-export async function saveAPIKey(provider: string, key: string): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.sync.get(STORAGE_KEYS.API_KEYS, (result) => {
-      const keys = result[STORAGE_KEYS.API_KEYS] || {};
-      keys[provider] = key;
-      
-      chrome.storage.sync.set({
-        [STORAGE_KEYS.API_KEYS]: keys
-      }, () => resolve());
-    });
-  });
-}
-
-export async function deleteAPIKey(provider: string): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.sync.get(STORAGE_KEYS.API_KEYS, (result) => {
-      const keys = result[STORAGE_KEYS.API_KEYS] || {};
-      delete keys[provider];
-      
-      chrome.storage.sync.set({
-        [STORAGE_KEYS.API_KEYS]: keys
-      }, () => resolve());
-    });
-  });
-}
-
-// =============================================================================
-// الجلسات
-// =============================================================================
-
-export interface SessionRecord {
-  id: string;
-  tabId: number;
-  url: string;
-  startedAt: number;
-  endedAt?: number;
-  targetLang: string;
-  segments: Array<{
-    start: number;
-    end: number;
-    original: string;
-    translated: string;
-    confidence?: number;
-  }>;
-}
-
-export async function getSessionHistory(): Promise<SessionRecord[]> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(STORAGE_KEYS.HISTORY, (result) => {
-      resolve(result[STORAGE_KEYS.HISTORY] || []);
-    });
-  });
-}
-
-export async function saveSession(session: SessionRecord): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(STORAGE_KEYS.HISTORY, (result) => {
-      const history = result[STORAGE_KEYS.HISTORY] || [];
-      history.push(session);
-      
-      // الاحتفاظ بآخر 100 جلسة فقط
-      if (history.length > 100) {
-        history.splice(0, history.length - 100);
-      }
-      
-      chrome.storage.local.set({
-        [STORAGE_KEYS.HISTORY]: history
-      }, () => resolve());
-    });
-  });
-}
-
-export async function deleteSession(sessionId: string): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(STORAGE_KEYS.HISTORY, (result) => {
-      const history = result[STORAGE_KEYS.HISTORY] || [];
-      const filtered = history.filter(s => s.id !== sessionId);
-      
-      chrome.storage.local.set({
-        [STORAGE_KEYS.HISTORY]: filtered
-      }, () => resolve());
-    });
-  });
-}
-
-export async function clearAllSessions(): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.set({
-      [STORAGE_KEYS.HISTORY]: []
-    }, () => resolve());
-  });
-}
-
-// =============================================================================
-// حالة الإضافة
-// =============================================================================
-
-export interface ExtensionState {
-  activeSessionTabId?: number;
-  lastActiveTabId?: number;
-  installDate?: number;
-  version?: string;
-  stats?: {
-    totalSessions: number;
-    totalMinutes: number;
-    totalCharacters: number;
-  };
-}
-
-export async function getState(): Promise<ExtensionState> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(STORAGE_KEYS.STATE, (result) => {
-      resolve(result[STORAGE_KEYS.STATE] || {});
-    });
-  });
-}
-
-export async function saveState(state: Partial<ExtensionState>): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(STORAGE_KEYS.STATE, (result) => {
-      const current = result[STORAGE_KEYS.STATE] || {};
-      const updated = { ...current, ...state };
-      
-      chrome.storage.local.set({
-        [STORAGE_KEYS.STATE]: updated
-      }, () => resolve());
-    });
-  });
-}
-
-// =============================================================================
-// مسح جميع البيانات
-// =============================================================================
-
-export async function clearAllData(): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.sync.clear();
-    chrome.storage.local.clear();
-    resolve();
-  });
-}
-
-// =============================================================================
-// تصدير/استيراد الإعدادات
-// =============================================================================
-
-export async function exportSettings(): Promise<string> {
-  const data = {
-    settings: await getSettings(),
-    privacy: await getPrivacySettings(),
-    apiKeys: await getAPIKeys()
+export async function saveSettings(settings: Partial<typeof DEFAULT_SETTINGS>): Promise<void> {
+  const syncSettings = {
+    targetLang: settings.targetLang,
+    sourceLang: settings.sourceLang,
+    engine: settings.engine,
+    subtitleMode: settings.subtitleMode,
+    subtitleSize: settings.subtitleSize,
+    subtitlePosition: settings.subtitlePosition,
+    performanceMode: settings.performanceMode,
+    operatingMode: settings.operatingMode,
+    audioCaptureMethod: settings.audioCaptureMethod,
+    translationEngine: settings.translationEngine,
+    audioServer: settings.audioServer
   };
   
-  return JSON.stringify(data, null, 2);
+  const localSettings = {
+    offlineMode: settings.offlineMode,
+    drmWarningShown: settings.drmWarningShown,
+    theme: settings.theme,
+    language: settings.language
+  };
+  
+  await setStorage('sync', syncSettings);
+  await setStorage('local', localSettings);
 }
 
-export async function importSettings(jsonData: string): Promise<{ success: boolean; error?: string }> {
+export async function resetSettings(): Promise<void> {
+  await clearStorage('sync');
+  await clearStorage('local');
+  await setStorage('sync', DEFAULT_SETTINGS);
+}
+
+export async function exportSettings(): Promise<string> {
+  const settings = await getAllSettings();
+  return JSON.stringify(settings, null, 2);
+}
+
+export async function importSettings(jsonString: string): Promise<void> {
   try {
-    const data = JSON.parse(jsonData);
-    
-    if (data.settings) {
-      await saveSettings(data.settings);
-    }
-    if (data.privacy) {
-      await savePrivacySettings(data.privacy);
-    }
-    if (data.apiKeys) {
-      for (const [provider, key] of Object.entries(data.apiKeys)) {
-        await saveAPIKey(provider, key as string);
-      }
-    }
-    
-    return { success: true };
+    const settings = JSON.parse(jsonString);
+    await saveSettings(settings);
+    return Promise.resolve();
   } catch (error) {
-    return { success: false, error: (error as Error).message };
+    return Promise.reject(new Error('Invalid settings JSON'));
   }
+}
+
+export function onStorageChanged(callback: (changes: Record<string, chrome.storage.StorageChange>, area: string) => void): void {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    callback(changes, area);
+  });
 }
