@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "outDir": "../dist",
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@/types/*": ["./types/*"],
+      "@/core/*": ["./core/*"],
+      "@/utils/*": ["./utils/*"],
+      "@/background/*": ["./background/*"],
+      "@/content/*": ["./content/*"],
+      "@/offscreen/*": ["./offscreen/*"],
+      "@/ui/*": ["./ui/*"]
+    },
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "sourceMap": true,
+    "removeComments": false,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true
+  },
+  "include": [
+    "./**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}

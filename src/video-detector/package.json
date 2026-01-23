@@ -1,0 +1,37 @@
+{
+  "name": "universal-smart-video-detector",
+  "version": "1.0.0",
+  "description": "Universal Smart Video Detector & Downloader - Detect and download videos from any website",
+  "main": "dist/background/service-worker.js",
+  "scripts": {
+    "build:ext": "webpack --config webpack.config.js --mode=production --env target=extension",
+    "build:userscript": "webpack --config webpack.config.js --mode=production --env target=userscript",
+    "build": "npm run build:ext && npm run build:userscript",
+    "dev": "webpack --config webpack.config.js --mode=development --env target=extension --watch",
+    "clean": "rm -rf dist/",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "video-detector",
+    "video-downloader",
+    "chrome-extension",
+    "userscript",
+    "hls",
+    "dash",
+    "streaming"
+  ],
+  "author": "Video Detector Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/chrome": "^0.0.254",
+    "@types/node": "^20.10.4",
+    "copy-webpack-plugin": "^11.0.0",
+    "css-loader": "^6.8.1",
+    "style-loader": "^3.3.3",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.3",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {}
+}
